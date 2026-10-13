@@ -25,13 +25,21 @@
 
     <!-- Tâches -->
     <section id="view-tasks" class="view active">
+      <div id="admin-pending" hidden>
+        <h2>À valider</h2>
+        <ul id="suggestion-list" class="list"></ul>
+        <ul id="bonus-list" class="list"></ul>
+        <p id="no-pending" class="empty">Rien à valider.</p>
+      </div>
+
       <h2>Tâches</h2>
       <ul id="task-list" class="list"></ul>
-      <p id="no-tasks" class="empty">Aucune tâche. Ajoutez-en une ci-dessous.</p>
+      <p id="no-tasks" class="empty">Aucune tâche pour le moment.</p>
 
       <details class="card">
-        <summary>➕ Ajouter une tâche</summary>
+        <summary id="task-form-summary">💡 Proposer une tâche</summary>
         <form id="task-form">
+          <p id="task-form-hint" class="hint">Votre proposition sera validée par l'administrateur avant d'apparaître dans la liste.</p>
           <label>Tâche
             <input name="title" required maxlength="80" placeholder="Ranger le salon">
           </label>
@@ -51,7 +59,18 @@
               <option value="weekly">Chaque semaine</option>
             </select>
           </label>
-          <button type="submit">Ajouter</button>
+          <button type="submit" id="task-form-submit">Proposer</button>
+        </form>
+      </details>
+
+      <details class="card">
+        <summary>⭐ Déclarer une tâche bonus</summary>
+        <form id="bonus-form">
+          <p class="hint">Une tâche faite qui n'était pas dans la liste : l'administrateur décidera des points.</p>
+          <label>Ce que vous avez fait
+            <input name="title" required maxlength="80" placeholder="Nettoyé le garage">
+          </label>
+          <button type="submit">Envoyer</button>
         </form>
       </details>
     </section>
@@ -66,6 +85,14 @@
       </div>
       <ol id="ranking" class="list ranking"></ol>
 
+      <h2>Récompenses du mois</h2>
+      <div class="week-nav">
+        <button id="prev-month" aria-label="Mois précédent">◀</button>
+        <span id="month-label"></span>
+        <button id="next-month" aria-label="Mois suivant">▶</button>
+      </div>
+      <ul id="rewards" class="list rewards"></ul>
+
       <h3>Dernières tâches faites</h3>
       <ul id="history" class="list small"></ul>
     </section>
@@ -79,6 +106,17 @@
         <button type="submit">Ajouter</button>
       </form>
 
+      <h2>Paliers de récompense</h2>
+      <div class="card">
+        <ul id="tier-view" class="list small"></ul>
+        <form id="tier-form" hidden>
+          <p class="hint">Points à atteindre dans le mois → récompense (0 à 30 €).</p>
+          <div id="tier-rows"></div>
+          <button type="button" id="tier-add" class="secondary">+ Ajouter un palier</button>
+          <button type="submit">Enregistrer les paliers</button>
+        </form>
+      </div>
+
       <h2>Notifications</h2>
       <div class="card">
         <p id="notif-status"></p>
@@ -86,6 +124,20 @@
         <button id="notif-test" class="secondary">Afficher une notification test</button>
         <p class="hint">Sur iPhone : ouvrez le site dans Safari, « Partager » → « Sur l'écran d'accueil », puis ouvrez l'application depuis l'écran d'accueil avant d'activer les notifications.</p>
         <p class="hint">Les rappels sont vérifiés toutes les 15 minutes environ : ils peuvent arriver avec quelques minutes de retard.</p>
+      </div>
+
+      <h2>Administrateur</h2>
+      <div class="card">
+        <form id="admin-login">
+          <p class="hint">Réservé à l'administrateur du foyer.</p>
+          <input name="email" type="email" required placeholder="E-mail" autocomplete="username">
+          <input name="password" type="password" required placeholder="Mot de passe" autocomplete="current-password">
+          <button type="submit">Se connecter</button>
+        </form>
+        <div id="admin-status" hidden>
+          <p id="admin-status-text"></p>
+          <button id="admin-logout" class="secondary">Se déconnecter</button>
+        </div>
       </div>
     </section>
   </main>
