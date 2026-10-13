@@ -6,9 +6,9 @@ Adresse une fois publiée : **https://eresys21.github.io/m-nage/**
 
 ## Fonctionnalités
 
-- **Membres du foyer** : ajout des prénoms (onglet « Foyer »).
+- **Membres du foyer** : l'administrateur ajoute les prénoms et définit le mot de passe de chacun (onglet « Foyer »). Chacun se connecte en choisissant son prénom en haut de l'écran.
 - **Tâches** : attribution à une personne ou à tout le monde, nombre de points, date de rappel, répétition (aucune, chaque jour, chaque semaine).
-- **Points** : chaque tâche cochée « ✓ » rapporte ses points à la personne choisie en haut de l'écran.
+- **Points** : chacun ne peut cocher « ✓ » que les tâches qui lui sont attribuées (ou attribuées à tout le monde) ; les points vont à la personne connectée.
 - **Classement hebdomadaire** : du lundi au dimanche, avec les semaines précédentes et l'historique des dernières tâches.
 - **Récompenses mensuelles** : paliers de points donnant droit à une récompense de 0 à 30 €, avec la progression de chacun.
 - **Propositions et tâches bonus** : chacun peut proposer une tâche (avec une valeur en points) ou déclarer une tâche bonus déjà faite ; l'administrateur valide et fixe les points.
@@ -46,7 +46,9 @@ Tout reste dans les offres gratuites pour un usage familial, aux conditions suiv
 2. **Authentication** → onglet **Users** → **Ajouter un utilisateur** : saisir votre e-mail et un mot de passe.
 3. Copier l'**UID** de l'utilisateur créé (colonne « UID utilisateur »).
 4. **Firestore Database** → **Commencer une collection** : ID de collection `admins` ; ID du document : coller l'UID ; ajouter un champ `role` (chaîne) = `admin` → **Enregistrer**.
-5. Dans l'application : onglet « Foyer » → « Administrateur » → se connecter avec cet e-mail et ce mot de passe.
+5. Dans l'application : onglet « Foyer » → « Compte » → se connecter avec cet e-mail et ce mot de passe.
+6. Ajouter les prénoms du foyer, puis toucher **🙋** à côté de votre propre prénom pour y relier votre compte.
+7. Pour chaque autre membre, toucher **🔑** et choisir son mot de passe (6 caractères minimum). Le même bouton permet de le changer.
 
 ### 3. Configurer GitHub
 
@@ -62,11 +64,11 @@ Tout reste dans les offres gratuites pour un usage familial, aux conditions suiv
 2. L'ajouter à l'écran d'accueil :
    - **Android (Chrome)** : menu ⋮ → « Installer l'application » / « Ajouter à l'écran d'accueil ».
    - **iPhone (Safari, iOS 16.4 minimum)** : bouton Partager → « Sur l'écran d'accueil ». Sur iPhone, les notifications ne fonctionnent que depuis l'application ouverte depuis l'écran d'accueil.
-3. Choisir son prénom en haut de l'écran.
+3. Choisir son prénom en haut de l'écran et saisir son mot de passe (une seule fois par téléphone).
 4. Onglet « Foyer » → « Activer les notifications sur ce téléphone ».
 
 ## Limites
 
 - Les rappels sont vérifiés toutes les 15 minutes environ ; GitHub peut retarder ces vérifications de quelques minutes en cas de forte charge.
 - GitHub suspend les tâches planifiées d'un dépôt public sans activité depuis 60 jours : il suffit de les réactiver dans l'onglet **Actions**.
-- Les membres n'ont pas de mot de passe : toute personne qui connaît l'adresse peut cocher une tâche au nom de quelqu'un d'autre, proposer des tâches ou déclarer des bonus (qui restent soumis à validation).
+- Une personne qui connaît le mot de passe d'un autre membre peut se connecter à sa place.

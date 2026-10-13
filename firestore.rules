@@ -11,6 +11,15 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Membre connecté : compte relié à un prénom par l'administrateur (collection « accounts »).
+    function isMember() {
+      return signedIn() && exists(/databases/$(database)/documents/accounts/$(request.auth.uid));
+    }
+
+    function myUserId() {
+      return get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.userId;
+    }
+
     function task(id) {
       return get(/databases/$(database)/documents/tasks/$(id)).data;
     }
@@ -21,42 +30,56 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Lien compte de connexion → membre du foyer : géré par l'administrateur.
+    match /accounts/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
     match /users/{id} {
-      allow read, create: if signedIn();
-      allow update, delete: if isAdmin();
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
     // Tâches : seul l'administrateur crée, supprime et fixe les points.
-    // Les autres peuvent seulement marquer une tâche comme faite.
+    // Les membres peuvent seulement marquer comme faite une tâche qui leur est attribuée
+    // (ou attribuée à tout le monde).
     match /tasks/{id} {
       allow read: if signedIn();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        || (signedIn()
+        || (isMember()
+            && resource.data.get('assigneeId', null) in [null, myUserId()]
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'dueAt', 'reminded']));
     }
 
-    // Points gagnés : pour une tâche de la liste, les points doivent être ceux de la tâche.
+    // Points gagnés : chacun ne valide que ses propres tâches, pour lui-même,
+    // et les points doivent être ceux de la tâche.
     // Les tâches bonus (sans tâche associée) ne peuvent être créditées que par l'administrateur.
     match /completions/{id} {
       allow read: if signedIn();
-      allow create: if isAdmin()
-        || (signedIn()
+      allow create: if (isAdmin() && request.resource.data.get('bonus', false) == true)
+        || (isMember()
             && request.resource.data.keys().hasOnly(['taskId', 'title', 'userId', 'points', 'at'])
+            && request.resource.data.userId == myUserId()
             && request.resource.data.taskId is string
+            && task(request.resource.data.taskId).get('assigneeId', null) in [null, myUserId()]
             && task(request.resource.data.taskId).points == request.resource.data.points
-            && task(request.resource.data.taskId).get('done', false) == false);
+            && task(request.resource.data.taskId).get('done', false) == false
+            // une tâche non répétée doit être marquée faite en même temps (pas de double validation)
+            && (task(request.resource.data.taskId).get('recurrence', 'none') != 'none'
+                || getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('done', false) == true));
       allow update, delete: if isAdmin();
     }
 
     // Propositions de tâches et tâches bonus : tout le monde propose, l'administrateur valide.
     match /suggestions/{id} {
-      allow create: if signedIn();
+      allow create: if isMember() && request.resource.data.proposedBy == myUserId();
       allow read, update, delete: if isAdmin();
     }
 
     match /bonuses/{id} {
-      allow create: if signedIn();
+      allow create: if isMember() && request.resource.data.userId == myUserId();
       allow read, update, delete: if isAdmin();
     }
 

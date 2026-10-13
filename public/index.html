@@ -101,7 +101,7 @@
     <section id="view-family" class="view">
       <h2>Membres du foyer</h2>
       <ul id="user-list" class="list"></ul>
-      <form id="user-form" class="inline">
+      <form id="user-form" class="inline" hidden>
         <input name="name" required maxlength="30" placeholder="Prénom">
         <button type="submit">Ajouter</button>
       </form>
@@ -126,10 +126,10 @@
         <p class="hint">Les rappels sont vérifiés toutes les 15 minutes environ : ils peuvent arriver avec quelques minutes de retard.</p>
       </div>
 
-      <h2>Administrateur</h2>
+      <h2>Compte</h2>
       <div class="card">
         <form id="admin-login">
-          <p class="hint">Réservé à l'administrateur du foyer.</p>
+          <p class="hint">Connexion de l'administrateur par e-mail (première connexion). Les membres se connectent en choisissant leur prénom en haut de l'écran.</p>
           <input name="email" type="email" required placeholder="E-mail" autocomplete="username">
           <input name="password" type="password" required placeholder="Mot de passe" autocomplete="current-password">
           <button type="submit">Se connecter</button>
@@ -147,6 +147,17 @@
     <button data-view="view-ranking">🏆<span>Classement</span></button>
     <button data-view="view-family">👪<span>Foyer</span></button>
   </nav>
+
+  <dialog id="login-dialog">
+    <form id="login-form" method="dialog">
+      <h2 id="login-title">Connexion</h2>
+      <input name="password" type="password" required placeholder="Mot de passe" autocomplete="current-password">
+      <div class="dialog-actions">
+        <button type="button" id="login-cancel" class="secondary">Annuler</button>
+        <button type="submit">Se connecter</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" role="status"></div>
 

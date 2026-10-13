@@ -1,7 +1,7 @@
 // Interface de l'application M-nage (données partagées via Firebase).
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
-  getAuth, signInAnonymously, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+  getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   getFirestore, collection, doc, addDoc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, onSnapshot,
@@ -25,6 +25,7 @@ const state = {
   bonuses: [],
   tiers: DEFAULT_TIERS,
   isAdmin: false,
+  me: null, // membre connecté sur ce téléphone
   weekOffset: 0,
   monthOffset: 0,
 };
@@ -65,19 +66,21 @@ function local(key, value) {
   }
 }
 
-const getCurrentUserId = () => local('userId');
-const setCurrentUserId = (id) => local('userId', id);
+const getCurrentUserId = () => state.me;
 const userName = (id) => (state.users.find((u) => u.id === id) || {}).name;
 
 function requireCurrentUser() {
   const userId = getCurrentUserId();
   if (!userId || !userName(userId)) {
-    toast('Choisissez d’abord qui vous êtes (en haut).');
+    toast('Connectez-vous d’abord : choisissez votre prénom en haut.');
     $('#current-user').focus();
     return null;
   }
   return userId;
 }
+
+// Une tâche ne peut être validée que par la personne à qui elle est attribuée (ou par tous si « Tout le monde »).
+const canComplete = (t) => Boolean(state.me) && (!t.assigneeId || t.assigneeId === state.me);
 
 const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
 
@@ -95,8 +98,8 @@ if ('serviceWorker' in navigator) {
 function renderUserSelects() {
   const current = $('#current-user');
   const currentId = getCurrentUserId();
-  current.replaceChildren(el('option', { value: '', textContent: 'Qui êtes-vous ?' }));
-  for (const u of state.users) {
+  current.replaceChildren(el('option', { value: '', textContent: 'Se connecter…' }));
+  for (const u of state.users.filter((x) => x.email)) {
     current.append(el('option', { value: u.id, textContent: u.name, selected: u.id === currentId }));
   }
 
@@ -112,11 +115,17 @@ function renderUserSelects() {
   for (const u of state.users) {
     list.append(
       el('li', {},
-        el('span', { className: 'task-info', textContent: u.name }),
+        el('span', { className: 'task-info' },
+          u.name,
+          u.email ? null : el('span', { className: 'no-access', textContent: ' · pas encore de mot de passe' })
+        ),
+        state.isAdmin && !state.me ? button('🙋', 'icon', () => linkMe(u), 'C’est moi') : null,
+        state.isAdmin ? button('🔑', 'icon', () => createAccess(u), 'Définir le mot de passe') : null,
         state.isAdmin ? button('🗑️', 'icon', () => deleteUser(u), 'Supprimer') : null
       )
     );
   }
+  $('#user-form').hidden = !state.isAdmin;
 }
 
 // ---------- Rendu : tâches ----------
@@ -155,7 +164,7 @@ function renderTasks() {
       el('li', {},
         el('div', { className: 'task-info' }, el('div', { className: 'task-title', textContent: t.title }), taskMeta(t)),
         el('span', { className: 'points', textContent: `${t.points} pts` }),
-        button('✓', 'done', () => completeTask(t), 'Fait !'),
+        canComplete(t) ? button('✓', 'done', () => completeTask(t), 'Fait !') : null,
         state.isAdmin ? button('✏️', 'icon', () => editTaskPoints(t), 'Modifier les points') : null,
         state.isAdmin ? button('🗑️', 'icon', () => deleteTask(t), 'Supprimer') : null
       )
@@ -375,9 +384,13 @@ const refreshRanking = () => {
 };
 
 function renderAdminState() {
-  $('#admin-login').hidden = state.isAdmin;
-  $('#admin-status').hidden = !state.isAdmin;
-  $('#admin-status-text').textContent = `✅ Connecté en administrateur (${auth.currentUser?.email || ''}).`;
+  const loggedIn = Boolean(state.me) || state.isAdmin;
+  $('#admin-login').hidden = loggedIn;
+  $('#admin-status').hidden = !loggedIn;
+  const who = state.me ? `✅ Connecté : ${userName(state.me) || '…'}` : '✅ Connecté';
+  $('#admin-status-text').textContent = state.isAdmin
+    ? `${who} (administrateur)${state.me ? '' : ' — touchez 🙋 à côté de votre prénom pour relier votre compte.'}`
+    : `${who}.`;
   renderUserSelects();
   renderTasks();
   renderTaskForm();
@@ -440,13 +453,43 @@ async function deleteUser(user) {
   if (!confirm(`Supprimer ${user.name} ? Ses points passés ne compteront plus dans le classement.`)) return;
   const batch = writeBatch(db);
   batch.delete(doc(db, 'users', user.id));
+  if (user.uid) batch.delete(doc(db, 'accounts', user.uid));
   for (const t of state.tasks) {
     if (t.assigneeId === user.id) batch.update(doc(db, 'tasks', t.id), { assigneeId: null });
   }
   const tokens = await getDocs(query(collection(db, 'tokens'), where('userId', '==', user.id)));
   tokens.forEach((d) => batch.delete(d.ref));
   await batch.commit();
-  if (getCurrentUserId() === user.id) setCurrentUserId('');
+}
+
+// Crée (ou remplace) le compte de connexion d'un membre, sans déconnecter l'administrateur.
+let secondaryAuth;
+async function createAccess(user) {
+  const password = prompt(`Mot de passe pour ${user.name} (6 caractères minimum) :`);
+  if (password === null) return;
+  if (password.length < 6) throw new Error('6 caractères minimum');
+  if (!secondaryAuth) secondaryAuth = getAuth(initializeApp(firebaseConfig, 'comptes'));
+  const email = `membre-${user.id.toLowerCase()}-${Date.now()}@m-nage.app`;
+  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+  await signOut(secondaryAuth);
+  const batch = writeBatch(db);
+  if (user.uid) batch.delete(doc(db, 'accounts', user.uid));
+  batch.set(doc(db, 'accounts', cred.user.uid), { userId: user.id });
+  batch.update(doc(db, 'users', user.id), { email, uid: cred.user.uid });
+  await batch.commit();
+  toast(`Mot de passe défini pour ${user.name}`);
+}
+
+// Relie le compte administrateur (e-mail) à son prénom dans le foyer.
+async function linkMe(user) {
+  if (!confirm(`Relier votre compte administrateur à ${user.name} ?`)) return;
+  const { uid, email } = auth.currentUser;
+  const batch = writeBatch(db);
+  if (user.uid && user.uid !== uid) batch.delete(doc(db, 'accounts', user.uid));
+  batch.set(doc(db, 'accounts', uid), { userId: user.id });
+  batch.update(doc(db, 'users', user.id), { email, uid });
+  await batch.commit();
+  await loadIdentity(auth.currentUser);
 }
 
 async function approveSuggestion(s, pointsValue) {
@@ -546,9 +589,9 @@ $('#user-form').addEventListener('submit', async (e) => {
     return toast('Ce prénom existe déjà');
   }
   try {
-    const ref = await addDoc(collection(db, 'users'), { name });
-    if (!getCurrentUserId()) setCurrentUserId(ref.id);
+    await addDoc(collection(db, 'users'), { name });
     input.value = '';
+    toast(`${name} ajouté·e : touchez 🔑 pour définir son mot de passe`);
   } catch (err) {
     toast(err.message);
   }
@@ -591,14 +634,30 @@ $('#admin-login').addEventListener('submit', async (e) => {
 
 $('#admin-logout').addEventListener('click', () => signOut(auth));
 
-$('#current-user').addEventListener('change', async (e) => {
-  setCurrentUserId(e.target.value);
-  // Si ce téléphone reçoit les rappels, les rattacher au nouvel utilisateur.
-  const token = local('fcmToken');
-  if (token && e.target.value && db) {
-    await setDoc(doc(db, 'tokens', token), { userId: e.target.value, updatedAt: new Date().toISOString() });
+let loginTarget = null;
+
+$('#current-user').addEventListener('change', (e) => {
+  const user = state.users.find((u) => u.id === e.target.value);
+  e.target.value = state.me || '';
+  if (!user || user.id === state.me) return;
+  loginTarget = user;
+  $('#login-title').textContent = `Connexion : ${user.name}`;
+  $('#login-dialog').showModal();
+  $('#login-form').elements.password.focus();
+});
+
+$('#login-cancel').addEventListener('click', () => $('#login-dialog').close());
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = e.target.elements.password;
+  try {
+    await signInWithEmailAndPassword(auth, loginTarget.email, input.value);
+    $('#login-dialog').close();
+  } catch {
+    toast('Mot de passe incorrect');
   }
-  updateNotifStatus();
+  input.value = '';
 });
 
 // Onglets
@@ -712,9 +771,7 @@ function watchData() {
 
   onSnapshot(query(collection(db, 'users'), orderBy('name')), (snap) => {
     state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderUserSelects();
-    renderTasks();
-    renderPending();
+    renderAdminState();
     updateNotifStatus();
     refreshRanking();
   });
@@ -729,6 +786,22 @@ function watchData() {
     renderTiers();
     refreshRanking();
   });
+}
+
+async function loadIdentity(user) {
+  const read = (path) => getDoc(doc(db, path, user.uid)).catch(() => null);
+  const [adminDoc, accountDoc] = user.isAnonymous ? [] : await Promise.all([read('admins'), read('accounts')]);
+  state.isAdmin = adminDoc?.exists() === true;
+  state.me = accountDoc?.exists() ? accountDoc.data().userId : null;
+  if (!user.isAnonymous && !state.isAdmin && !state.me) toast('Ce compte n’est relié à aucun membre.');
+  // Les rappels de ce téléphone suivent la personne connectée.
+  const token = local('fcmToken');
+  if (token && state.me) {
+    await setDoc(doc(db, 'tokens', token), { userId: state.me, updatedAt: new Date().toISOString() }).catch(() => {});
+  }
+  watchPending();
+  renderAdminState();
+  updateNotifStatus();
 }
 
 async function start() {
@@ -750,11 +823,8 @@ async function start() {
       await signInAnonymously(auth).catch((err) => toast(`Erreur de connexion : ${err.message}`));
       return;
     }
-    state.isAdmin = !user.isAnonymous && (await getDoc(doc(db, 'admins', user.uid)).catch(() => null))?.exists() === true;
-    if (!user.isAnonymous && !state.isAdmin) toast('Ce compte n’est pas administrateur.');
+    await loadIdentity(user);
     watchData();
-    watchPending();
-    renderAdminState();
   });
 }
 
