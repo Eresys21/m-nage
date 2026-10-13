@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f7d6d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="M-nage">
+  <title>M-nage</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🧹 M-nage</h1>
+    <select id="current-user" aria-label="Qui êtes-vous ?"></select>
+  </header>
+
+  <main>
+    <!-- Tâches -->
+    <section id="view-tasks" class="view active">
+      <h2>Tâches</h2>
+      <ul id="task-list" class="list"></ul>
+      <p id="no-tasks" class="empty">Aucune tâche. Ajoutez-en une ci-dessous.</p>
+
+      <details class="card">
+        <summary>➕ Ajouter une tâche</summary>
+        <form id="task-form">
+          <label>Tâche
+            <input name="title" required maxlength="80" placeholder="Ranger le salon">
+          </label>
+          <label>Points
+            <input name="points" type="number" min="1" max="100" value="5" required>
+          </label>
+          <label>Attribuée à
+            <select name="assigneeId" id="assignee-select"></select>
+          </label>
+          <label>Rappel le
+            <input name="dueAt" type="datetime-local">
+          </label>
+          <label>Répétition
+            <select name="recurrence">
+              <option value="none">Aucune</option>
+              <option value="daily">Chaque jour</option>
+              <option value="weekly">Chaque semaine</option>
+            </select>
+          </label>
+          <button type="submit">Ajouter</button>
+        </form>
+      </details>
+    </section>
+
+    <!-- Classement -->
+    <section id="view-ranking" class="view">
+      <h2>Classement de la semaine</h2>
+      <div class="week-nav">
+        <button id="prev-week" aria-label="Semaine précédente">◀</button>
+        <span id="week-label"></span>
+        <button id="next-week" aria-label="Semaine suivante">▶</button>
+      </div>
+      <ol id="ranking" class="list ranking"></ol>
+
+      <h3>Dernières tâches faites</h3>
+      <ul id="history" class="list small"></ul>
+    </section>
+
+    <!-- Famille / réglages -->
+    <section id="view-family" class="view">
+      <h2>Membres du foyer</h2>
+      <ul id="user-list" class="list"></ul>
+      <form id="user-form" class="inline">
+        <input name="name" required maxlength="30" placeholder="Prénom">
+        <button type="submit">Ajouter</button>
+      </form>
+
+      <h2>Notifications</h2>
+      <div class="card">
+        <p id="notif-status"></p>
+        <button id="notif-enable">Activer les notifications sur ce téléphone</button>
+        <button id="notif-test" class="secondary">Envoyer une notification test</button>
+        <p class="hint">Sur iPhone : ouvrez le site dans Safari, « Partager » → « Sur l'écran d'accueil », puis ouvrez l'application depuis l'écran d'accueil avant d'activer les notifications.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="view-tasks" class="active">📋<span>Tâches</span></button>
+    <button data-view="view-ranking">🏆<span>Classement</span></button>
+    <button data-view="view-family">👪<span>Foyer</span></button>
+  </nav>
+
+  <div id="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
