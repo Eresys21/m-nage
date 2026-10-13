@@ -60,6 +60,7 @@
               <option value="daily">Chaque jour</option>
               <option value="multi">Plusieurs fois par jour</option>
               <option value="weekly">Chaque semaine</option>
+              <option value="days">Certains jours de la semaine</option>
             </select>
           </label>
           <label id="due-field">Rappel le
@@ -70,7 +71,23 @@
             <div id="time-rows"></div>
             <button type="button" id="time-add" class="secondary">+ Ajouter une heure</button>
           </div>
+          <div id="days-field" hidden>
+            <label>Jours</label>
+            <div class="day-picks">
+              <label><input type="checkbox" name="day" value="1">Lun</label>
+              <label><input type="checkbox" name="day" value="2">Mar</label>
+              <label><input type="checkbox" name="day" value="3">Mer</label>
+              <label><input type="checkbox" name="day" value="4">Jeu</label>
+              <label><input type="checkbox" name="day" value="5">Ven</label>
+              <label><input type="checkbox" name="day" value="6">Sam</label>
+              <label><input type="checkbox" name="day" value="0">Dim</label>
+            </div>
+            <label>Heure du rappel
+              <input name="dayTime" type="time" value="18:00">
+            </label>
+          </div>
           <button type="submit" id="task-form-submit">Proposer</button>
+          <button type="button" id="task-form-cancel" class="secondary" hidden>Annuler la modification</button>
         </form>
       </details>
 

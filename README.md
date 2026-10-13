@@ -7,7 +7,7 @@ Adresse une fois publiée : **https://eresys21.github.io/m-nage/**
 ## Fonctionnalités
 
 - **Comptes** : chacun crée son compte depuis l'application (prénom, e-mail, mot de passe) ; l'administrateur valide l'inscription et la relie à un membre du foyer. Connexion en choisissant son prénom en haut de l'écran ou par e-mail, avec « Mot de passe oublié ».
-- **Tâches** : attribution à une personne ou à tout le monde, nombre de points, date de rappel, répétition (aucune, chaque jour, plusieurs fois par jour à heures fixes, chaque semaine).
+- **Tâches** : attribution à une personne ou à tout le monde, nombre de points, date de rappel, répétition (aucune, chaque jour, plusieurs fois par jour à heures fixes, chaque semaine, certains jours de la semaine). L'administrateur peut modifier entièrement une tâche (✏️).
 - **Points** : chacun ne peut cocher « ✓ » que les tâches qui lui sont attribuées (ou attribuées à tout le monde) ; les points vont à la personne connectée.
 - **Classement hebdomadaire** : du lundi au dimanche, avec les semaines précédentes et l'historique des dernières tâches.
 - **Récompenses mensuelles** : paliers de points donnant droit à une récompense de 0 à 30 €, avec la progression de chacun.

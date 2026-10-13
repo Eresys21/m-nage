@@ -139,8 +139,15 @@ function formatDue(iso) {
 
 const RECURRENCE_LABEL = { daily: 'chaque jour', weekly: 'chaque semaine' };
 
+const DAY_NAMES = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+const mondayFirst = (d) => (d + 6) % 7;
+
 function recurrenceLabel(t) {
   if (t.recurrence === 'multi' && Array.isArray(t.times)) return `chaque jour à ${t.times.join(', ')}`;
+  if (t.recurrence === 'days' && Array.isArray(t.days)) {
+    const names = [...t.days].sort((a, b) => mondayFirst(a) - mondayFirst(b)).map((d) => DAY_NAMES[d]);
+    return `chaque ${names.join(', ')} à ${t.time}`;
+  }
   return RECURRENCE_LABEL[t.recurrence];
 }
 
@@ -173,7 +180,7 @@ function renderTasks() {
         el('div', { className: 'task-info' }, el('div', { className: 'task-title', textContent: t.title }), taskMeta(t)),
         el('span', { className: 'points', textContent: `${t.points} pts` }),
         canComplete(t) ? button('✓', 'done', () => completeTask(t), 'Fait !') : null,
-        state.isAdmin ? button('✏️', 'icon', () => editTaskPoints(t), 'Modifier les points') : null,
+        state.isAdmin ? button('✏️', 'icon', () => startEditTask(t), 'Modifier la tâche') : null,
         state.isAdmin ? button('🗑️', 'icon', () => deleteTask(t), 'Supprimer') : null
       )
     );
@@ -181,8 +188,13 @@ function renderTasks() {
 }
 
 function renderTaskForm() {
-  $('#task-form-summary').textContent = state.isAdmin ? '➕ Ajouter une tâche' : '💡 Proposer une tâche';
-  $('#task-form-submit').textContent = state.isAdmin ? 'Ajouter' : 'Proposer';
+  const editing = state.tasks.find((t) => t.id === editingTaskId);
+  if (editingTaskId && (!editing || !state.isAdmin)) editingTaskId = null;
+  $('#task-form-summary').textContent = editingTaskId
+    ? `✏️ Modifier : ${editing.title}`
+    : state.isAdmin ? '➕ Ajouter une tâche' : '💡 Proposer une tâche';
+  $('#task-form-submit').textContent = editingTaskId ? 'Enregistrer' : state.isAdmin ? 'Ajouter' : 'Proposer';
+  $('#task-form-cancel').hidden = !editingTaskId;
   $('#task-form-hint').hidden = state.isAdmin;
 }
 
@@ -458,12 +470,31 @@ function nextSlot(times, after) {
   return null;
 }
 
+// Prochain jour choisi (0 = dimanche … 6 = samedi) à l'heure « HH:MM », strictement après la date donnée.
+function nextWeekday(days, time, after) {
+  const [h, m] = time.split(':').map(Number);
+  for (let i = 0; i <= 7; i += 1) {
+    const d = new Date(after);
+    d.setDate(d.getDate() + i);
+    d.setHours(h, m, 0, 0);
+    if (days.includes(d.getDay()) && d > after) return d.toISOString();
+  }
+  return null;
+}
+
+// Première échéance d'une tâche répétée à créneaux fixes (plusieurs fois par jour / certains jours).
+function firstDue(t) {
+  if (t.recurrence === 'multi') return nextSlot(t.times, new Date());
+  if (t.recurrence === 'days') return nextWeekday(t.days, t.time, new Date());
+  return t.dueAt || null;
+}
+
 function nextDue(task) {
   const { dueAt, recurrence } = task;
-  if (recurrence === 'multi') {
-    // Créneau suivant celui qui vient d'être fait (ou le prochain à venir si la tâche était en retard).
-    return nextSlot(task.times, new Date(Math.max(Date.parse(dueAt), Date.now())));
-  }
+  // Créneau suivant celui qui vient d'être fait (ou le prochain à venir si la tâche était en retard).
+  const after = new Date(Math.max(Date.parse(dueAt), Date.now()));
+  if (recurrence === 'multi') return nextSlot(task.times, after);
+  if (recurrence === 'days') return nextWeekday(task.days, task.time, after);
   const step = recurrence === 'daily' ? 1 : recurrence === 'weekly' ? 7 : 0;
   const d = new Date(dueAt);
   const now = new Date();
@@ -523,12 +554,47 @@ async function undoCompletion(c) {
   refreshRanking();
 }
 
-async function editTaskPoints(task) {
-  const value = prompt(`Points pour « ${task.title} » :`, task.points);
-  if (value === null) return;
-  await updateDoc(doc(db, 'tasks', task.id), { points: parsePoints(value) });
-  toast('Points modifiés');
+// Modification complète d'une tâche (administrateur) : le formulaire est prérempli.
+let editingTaskId = null;
+
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+function startEditTask(task) {
+  const form = $('#task-form');
+  form.reset();
+  editingTaskId = task.id;
+  const fields = form.elements;
+  fields.title.value = task.title;
+  fields.points.value = task.points;
+  fields.assigneeId.value = task.assigneeId || '';
+  fields.recurrence.value = task.recurrence || 'none';
+  fields.dueAt.value = task.dueAt && !['multi', 'days'].includes(task.recurrence) ? toLocalInput(task.dueAt) : '';
+  $('#time-rows').replaceChildren();
+  for (const time of task.recurrence === 'multi' && task.times ? task.times : ['12:00', '19:00']) addTimeRow(time);
+  for (const box of form.querySelectorAll('[name=day]')) {
+    box.checked = task.recurrence === 'days' && (task.days || []).includes(Number(box.value));
+  }
+  if (task.recurrence === 'days' && task.time) fields.dayTime.value = task.time;
+  updateRecurrenceFields();
+  renderTaskForm();
+  const details = form.closest('details');
+  details.open = true;
+  details.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function stopEditTask() {
+  editingTaskId = null;
+  $('#task-form').reset();
+  resetTimeRows();
+  renderTaskForm();
+  $('#task-form').closest('details').open = false;
+}
+
+$('#task-form-cancel').addEventListener('click', stopEditTask);
 
 async function deleteTask(task) {
   if (!confirm(`Supprimer la tâche « ${task.title} » ?`)) return;
@@ -592,9 +658,10 @@ async function approveSuggestion(s, pointsValue) {
     title: s.title,
     points,
     assigneeId: s.assigneeId || null,
-    dueAt: s.recurrence === 'multi' ? nextSlot(s.times, new Date()) : s.dueAt || null,
+    dueAt: firstDue(s),
     recurrence: s.recurrence || 'none',
     ...(s.recurrence === 'multi' ? { times: s.times } : {}),
+    ...(s.recurrence === 'days' ? { days: s.days, time: s.time } : {}),
     reminded: false,
     done: false,
   });
@@ -645,7 +712,23 @@ $('#task-form').addEventListener('submit', async (e) => {
       const times = [...new Set(f.getAll('time').filter(Boolean))].sort();
       if (times.length < 2) throw new Error('Indiquez au moins deux heures');
       data.times = times;
-      data.dueAt = nextSlot(times, new Date());
+    }
+    if (recurrence === 'days') {
+      const days = f.getAll('day').map(Number);
+      if (!days.length) throw new Error('Choisissez au moins un jour');
+      if (!f.get('dayTime')) throw new Error('Indiquez l’heure du rappel');
+      data.days = days;
+      data.time = f.get('dayTime');
+    }
+    data.dueAt = firstDue(data);
+    if (editingTaskId) {
+      // Les champs propres aux autres types de répétition sont effacés.
+      await updateDoc(doc(db, 'tasks', editingTaskId), {
+        times: null, days: null, time: null, ...data, reminded: false,
+      });
+      toast('Tâche modifiée');
+      stopEditTask();
+      return;
     }
     if (state.isAdmin) {
       await addDoc(collection(db, 'tasks'), { ...data, reminded: false, done: false });
@@ -679,9 +762,10 @@ function resetTimeRows() {
 }
 
 function updateRecurrenceFields() {
-  const multi = $('#recurrence-select').value === 'multi';
-  $('#times-field').hidden = !multi;
-  $('#due-field').hidden = multi;
+  const value = $('#recurrence-select').value;
+  $('#times-field').hidden = value !== 'multi';
+  $('#days-field').hidden = value !== 'days';
+  $('#due-field').hidden = value === 'multi' || value === 'days';
 }
 
 $('#recurrence-select').addEventListener('change', updateRecurrenceFields);

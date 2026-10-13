@@ -239,3 +239,17 @@ dialog h2 { margin-top: 0; }
 .time-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .time-row input { margin: 0; }
 #time-add { width: 100%; margin-top: 8px; }
+
+.day-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.day-picks label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+}
+.day-picks input { width: auto; margin: 0; }
+#task-form-cancel { width: 100%; margin-top: 8px; }
