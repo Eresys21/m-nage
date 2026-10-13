@@ -140,6 +140,8 @@ form.inline input { margin: 0; }
 
 .card button { display: block; width: 100%; margin-top: 8px; }
 
+.warning { border-color: var(--danger); color: var(--danger); }
+
 .hint { font-size: 0.82rem; color: var(--muted); }
 .empty { color: var(--muted); text-align: center; }
 

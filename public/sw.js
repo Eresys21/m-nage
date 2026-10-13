@@ -1,17 +1,19 @@
-// Service worker : réception des rappels (Web Push).
+// Service worker : réception des rappels envoyés par Firebase Cloud Messaging.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {
-  let data = {};
+  let payload = {};
   try {
-    data = event.data ? event.data.json() : {};
+    payload = event.data ? event.data.json() : {};
   } catch {
-    data = { body: event.data && event.data.text() };
+    payload = { data: { body: event.data && event.data.text() } };
   }
+  const data = payload.data || {};
+  const notif = payload.notification || {};
   event.waitUntil(
-    self.registration.showNotification(data.title || 'M-nage', {
-      body: data.body || '',
+    self.registration.showNotification(data.title || notif.title || 'M-nage', {
+      body: data.body || notif.body || '',
       icon: 'icon-192.png',
       badge: 'icon-192.png',
       tag: data.tag,

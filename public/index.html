@@ -19,6 +19,10 @@
   </header>
 
   <main>
+    <p id="setup-warning" class="card warning" hidden>
+      Application non configurée : renseignez <code>public/firebase-config.js</code> (voir README).
+    </p>
+
     <!-- Tâches -->
     <section id="view-tasks" class="view active">
       <h2>Tâches</h2>
@@ -79,8 +83,9 @@
       <div class="card">
         <p id="notif-status"></p>
         <button id="notif-enable">Activer les notifications sur ce téléphone</button>
-        <button id="notif-test" class="secondary">Envoyer une notification test</button>
+        <button id="notif-test" class="secondary">Afficher une notification test</button>
         <p class="hint">Sur iPhone : ouvrez le site dans Safari, « Partager » → « Sur l'écran d'accueil », puis ouvrez l'application depuis l'écran d'accueil avant d'activer les notifications.</p>
+        <p class="hint">Les rappels sont vérifiés toutes les 15 minutes environ : ils peuvent arriver avec quelques minutes de retard.</p>
       </div>
     </section>
   </main>
@@ -93,6 +98,6 @@
 
   <div id="toast" role="status"></div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

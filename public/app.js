@@ -1,4 +1,13 @@
-// Interface de l'application M-nage.
+// Interface de l'application M-nage (données partagées via Firebase).
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import {
+  getFirestore, collection, doc, addDoc, setDoc, deleteDoc, getDocs, onSnapshot,
+  query, where, orderBy, limit, writeBatch,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { getMessaging, getToken, isSupported } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js';
+import { firebaseConfig, vapidKey } from './firebase-config.js';
+
 const state = { users: [], tasks: [], weekOffset: 0 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -12,19 +21,6 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Erreur réseau');
-  }
-  return res.status === 204 ? null : res.json();
-}
-
 let toastTimer;
 function toast(message) {
   const t = $('#toast');
@@ -34,22 +30,28 @@ function toast(message) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// ---------- Utilisateur courant ----------
-function getCurrentUserId() {
+// ---------- Stockage local (préférences de ce téléphone) ----------
+function local(key, value) {
   try {
-    return localStorage.getItem('userId');
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
   } catch {
     return null;
   }
 }
 
-function setCurrentUserId(id) {
-  try {
-    localStorage.setItem('userId', id);
-  } catch {}
-}
-
+const getCurrentUserId = () => local('userId');
+const setCurrentUserId = (id) => local('userId', id);
 const userName = (id) => (state.users.find((u) => u.id === id) || {}).name;
+
+// ---------- Firebase ----------
+const configured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+let db;
+let swRegistration;
+
+if ('serviceWorker' in navigator) {
+  swRegistration = navigator.serviceWorker.register('sw.js');
+}
 
 // ---------- Rendu ----------
 function renderUserSelects() {
@@ -61,9 +63,10 @@ function renderUserSelects() {
   }
 
   const assignee = $('#assignee-select');
+  const selected = assignee.value;
   assignee.replaceChildren(el('option', { value: '', textContent: 'Tout le monde' }));
   for (const u of state.users) {
-    assignee.append(el('option', { value: u.id, textContent: u.name }));
+    assignee.append(el('option', { value: u.id, textContent: u.name, selected: u.id === selected }));
   }
 
   const list = $('#user-list');
@@ -101,10 +104,10 @@ function renderTasks() {
     }
     if (RECURRENCE_LABEL[t.recurrence]) meta.append(` · 🔁 ${RECURRENCE_LABEL[t.recurrence]}`);
 
-    const done = el('button', { className: 'done', textContent: '✓' , title: 'Fait !' });
-    done.addEventListener('click', () => completeTask(t));
+    const done = el('button', { className: 'done', textContent: '✓', title: 'Fait !' });
+    done.addEventListener('click', () => completeTask(t).catch((err) => toast(err.message)));
     const del = el('button', { className: 'icon', textContent: '🗑️', title: 'Supprimer' });
-    del.addEventListener('click', () => deleteTask(t));
+    del.addEventListener('click', () => deleteTask(t).catch((err) => toast(err.message)));
 
     list.append(
       el('li', {},
@@ -117,19 +120,42 @@ function renderTasks() {
   }
 }
 
+function weekStart(offset = 0) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = (d.getDay() + 6) % 7; // lundi = 0
+  d.setDate(d.getDate() - day + offset * 7);
+  return d;
+}
+
 async function renderRanking() {
-  const data = await api(`/api/leaderboard?offset=${state.weekOffset}`);
-  const start = new Date(data.start);
-  const end = new Date(Date.parse(data.end) - 1);
+  if (!db) return;
+  const start = weekStart(state.weekOffset);
+  const end = weekStart(state.weekOffset + 1);
   const fmt = (d) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const last = new Date(end.getTime() - 1);
   $('#week-label').textContent =
-    state.weekOffset === 0 ? `Cette semaine (${fmt(start)} – ${fmt(end)})` : `${fmt(start)} – ${fmt(end)}`;
+    state.weekOffset === 0 ? `Cette semaine (${fmt(start)} – ${fmt(last)})` : `${fmt(start)} – ${fmt(last)}`;
   $('#next-week').disabled = state.weekOffset >= 0;
+
+  const snap = await getDocs(
+    query(collection(db, 'completions'), where('at', '>=', start.toISOString()), where('at', '<', end.toISOString()))
+  );
+  const scores = state.users.map((u) => ({ userId: u.id, name: u.name, points: 0, tasks: 0 }));
+  snap.forEach((d) => {
+    const c = d.data();
+    const s = scores.find((x) => x.userId === c.userId);
+    if (s) {
+      s.points += c.points;
+      s.tasks += 1;
+    }
+  });
+  scores.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 
   const medals = ['🥇', '🥈', '🥉'];
   const list = $('#ranking');
   list.replaceChildren();
-  data.scores.forEach((s, i) => {
+  scores.forEach((s, i) => {
     list.append(
       el('li', {},
         el('span', { className: 'rank', textContent: s.points > 0 && medals[i] ? medals[i] : `${i + 1}` }),
@@ -139,12 +165,13 @@ async function renderRanking() {
       )
     );
   });
-  if (!data.scores.length) list.append(el('p', { className: 'empty', textContent: 'Ajoutez les membres du foyer.' }));
+  if (!scores.length) list.append(el('p', { className: 'empty', textContent: 'Ajoutez les membres du foyer.' }));
 
-  const history = await api('/api/completions');
+  const history = await getDocs(query(collection(db, 'completions'), orderBy('at', 'desc'), limit(30)));
   const h = $('#history');
   h.replaceChildren();
-  for (const c of history) {
+  history.forEach((d) => {
+    const c = d.data();
     const when = new Date(c.at).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     h.append(
       el('li', {},
@@ -153,62 +180,87 @@ async function renderRanking() {
         el('span', { className: 'points', textContent: `+${c.points}` })
       )
     );
-  }
+  });
 }
 
-async function refresh() {
-  [state.users, state.tasks] = await Promise.all([api('/api/users'), api('/api/tasks')]);
-  renderUserSelects();
-  renderTasks();
-  if ($('#view-ranking').classList.contains('active')) await renderRanking();
-  updateNotifStatus();
-}
+const rankingVisible = () => $('#view-ranking').classList.contains('active');
 
 // ---------- Actions ----------
+function nextDue(dueAt, recurrence) {
+  const step = recurrence === 'daily' ? 1 : recurrence === 'weekly' ? 7 : 0;
+  const d = new Date(dueAt);
+  const now = new Date();
+  do {
+    d.setDate(d.getDate() + step);
+  } while (d <= now);
+  return d.toISOString();
+}
+
 async function completeTask(task) {
   const userId = getCurrentUserId();
-  if (!userId) {
+  if (!userId || !userName(userId)) {
     toast('Choisissez d’abord qui vous êtes (en haut).');
     $('#current-user').focus();
     return;
   }
-  const res = await api(`/api/tasks/${task.id}/complete`, { method: 'POST', body: { userId } });
-  toast(`Bravo ${userName(userId)} ! +${res.points} points 🎉`);
-  await refresh();
+  const batch = writeBatch(db);
+  batch.set(doc(collection(db, 'completions')), {
+    taskId: task.id,
+    title: task.title,
+    userId,
+    points: task.points,
+    at: new Date().toISOString(),
+  });
+  const ref = doc(db, 'tasks', task.id);
+  if (task.recurrence === 'none') {
+    batch.delete(ref);
+  } else if (task.dueAt) {
+    batch.update(ref, { dueAt: nextDue(task.dueAt, task.recurrence), reminded: false });
+  }
+  await batch.commit();
+  toast(`Bravo ${userName(userId)} ! +${task.points} points 🎉`);
+  if (rankingVisible()) renderRanking();
 }
 
 async function deleteTask(task) {
   if (!confirm(`Supprimer la tâche « ${task.title} » ?`)) return;
-  await api(`/api/tasks/${task.id}`, { method: 'DELETE' });
-  await refresh();
+  await deleteDoc(doc(db, 'tasks', task.id));
 }
 
 async function deleteUser(user) {
   if (!confirm(`Supprimer ${user.name} ? Ses points passés ne compteront plus dans le classement.`)) return;
-  await api(`/api/users/${user.id}`, { method: 'DELETE' });
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'users', user.id));
+  for (const t of state.tasks) {
+    if (t.assigneeId === user.id) batch.update(doc(db, 'tasks', t.id), { assigneeId: null });
+  }
+  const tokens = await getDocs(query(collection(db, 'tokens'), where('userId', '==', user.id)));
+  tokens.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
   if (getCurrentUserId() === user.id) setCurrentUserId('');
-  await refresh();
 }
 
 $('#task-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!db) return;
   const f = new FormData(e.target);
+  const title = String(f.get('title') || '').trim();
+  const points = parseInt(f.get('points'), 10);
   const dueAt = f.get('dueAt');
+  if (!title) return toast('Titre requis');
+  if (!Number.isInteger(points) || points < 1) return toast('Points invalides');
   try {
-    await api('/api/tasks', {
-      method: 'POST',
-      body: {
-        title: f.get('title'),
-        points: f.get('points'),
-        assigneeId: f.get('assigneeId') || null,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-        recurrence: f.get('recurrence'),
-      },
+    await addDoc(collection(db, 'tasks'), {
+      title,
+      points,
+      assigneeId: f.get('assigneeId') || null,
+      dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      recurrence: f.get('recurrence'),
+      reminded: false,
     });
     e.target.reset();
     e.target.closest('details').open = false;
     toast('Tâche ajoutée');
-    await refresh();
   } catch (err) {
     toast(err.message);
   }
@@ -216,12 +268,17 @@ $('#task-form').addEventListener('submit', async (e) => {
 
 $('#user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!db) return;
   const input = e.target.elements.name;
+  const name = input.value.trim();
+  if (!name) return;
+  if (state.users.some((u) => u.name.toLowerCase() === name.toLowerCase())) {
+    return toast('Ce prénom existe déjà');
+  }
   try {
-    const user = await api('/api/users', { method: 'POST', body: { name: input.value } });
-    if (!getCurrentUserId()) setCurrentUserId(user.id);
+    const ref = await addDoc(collection(db, 'users'), { name });
+    if (!getCurrentUserId()) setCurrentUserId(ref.id);
     input.value = '';
-    await refresh();
   } catch (err) {
     toast(err.message);
   }
@@ -229,10 +286,10 @@ $('#user-form').addEventListener('submit', async (e) => {
 
 $('#current-user').addEventListener('change', async (e) => {
   setCurrentUserId(e.target.value);
-  // Si ce téléphone est abonné, rattacher l'abonnement au nouvel utilisateur.
-  const sub = await getSubscription();
-  if (sub && e.target.value) {
-    await api('/api/subscribe', { method: 'POST', body: { userId: e.target.value, subscription: sub } });
+  // Si ce téléphone reçoit les rappels, les rattacher au nouvel utilisateur.
+  const token = local('fcmToken');
+  if (token && e.target.value && db) {
+    await setDoc(doc(db, 'tokens', token), { userId: e.target.value, updatedAt: new Date().toISOString() });
   }
   updateNotifStatus();
 });
@@ -248,43 +305,30 @@ document.querySelectorAll('nav.tabs button').forEach((btn) => {
 
 $('#prev-week').addEventListener('click', () => {
   state.weekOffset -= 1;
-  renderRanking();
+  renderRanking().catch((err) => toast(err.message));
 });
 $('#next-week').addEventListener('click', () => {
   if (state.weekOffset < 0) state.weekOffset += 1;
-  renderRanking();
+  renderRanking().catch((err) => toast(err.message));
 });
 
 // ---------- Notifications ----------
-const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+let messagingSupported = false;
 
-async function getSubscription() {
-  if (!pushSupported) return null;
-  const reg = await navigator.serviceWorker.ready;
-  return reg.pushManager.getSubscription();
-}
-
-function urlBase64ToUint8Array(base64) {
-  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
-}
-
-async function updateNotifStatus() {
+function updateNotifStatus() {
   const status = $('#notif-status');
   const enable = $('#notif-enable');
   const test = $('#notif-test');
-  if (!pushSupported) {
+  if (!messagingSupported) {
     status.textContent = 'Ce navigateur ne gère pas les notifications. Sur iPhone, ajoutez d’abord l’application à l’écran d’accueil.';
     enable.style.display = test.style.display = 'none';
     return;
   }
-  const sub = await getSubscription();
-  const on = sub && Notification.permission === 'granted';
+  const on = Notification.permission === 'granted' && Boolean(local('fcmToken'));
   status.textContent = on
     ? `✅ Notifications activées sur ce téléphone pour ${userName(getCurrentUserId()) || '…'}.`
     : Notification.permission === 'denied'
-      ? '🚫 Notifications bloquées : autorisez-les dans les réglages du navigateur.'
+      ? '🚫 Notifications bloquées : autorisez-les dans les réglages du téléphone.'
       : 'Notifications désactivées sur ce téléphone.';
   enable.style.display = on ? 'none' : 'block';
   test.style.display = on ? 'block' : 'none';
@@ -292,8 +336,12 @@ async function updateNotifStatus() {
 
 $('#notif-enable').addEventListener('click', async () => {
   const userId = getCurrentUserId();
-  if (!userId) {
+  if (!userId || !userName(userId)) {
     toast('Choisissez d’abord qui vous êtes (en haut).');
+    return;
+  }
+  if (!vapidKey) {
+    toast('Clé de notification manquante dans firebase-config.js');
     return;
   }
   try {
@@ -302,12 +350,12 @@ $('#notif-enable').addEventListener('click', async () => {
       toast('Notifications refusées');
       return updateNotifStatus();
     }
-    const { key } = await api('/api/vapid-public-key');
-    const reg = await navigator.serviceWorker.ready;
-    const sub =
-      (await reg.pushManager.getSubscription()) ||
-      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }));
-    await api('/api/subscribe', { method: 'POST', body: { userId, subscription: sub } });
+    const token = await getToken(getMessaging(), {
+      vapidKey,
+      serviceWorkerRegistration: await swRegistration,
+    });
+    await setDoc(doc(db, 'tokens', token), { userId, updatedAt: new Date().toISOString() });
+    local('fcmToken', token);
     toast('Notifications activées');
   } catch (err) {
     toast(`Impossible d’activer : ${err.message}`);
@@ -316,21 +364,38 @@ $('#notif-enable').addEventListener('click', async () => {
 });
 
 $('#notif-test').addEventListener('click', async () => {
-  try {
-    await api('/api/test-notification', { method: 'POST', body: { userId: getCurrentUserId() } });
-    toast('Notification envoyée');
-  } catch (err) {
-    toast(err.message);
-  }
+  const reg = await swRegistration;
+  await reg.showNotification('M-nage', {
+    body: `Les notifications s’affichent bien, ${userName(getCurrentUserId()) || ''} !`,
+    icon: 'icon-192.png',
+  });
 });
 
 // ---------- Démarrage ----------
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
+async function start() {
+  if (!configured) {
+    $('#setup-warning').hidden = false;
+    renderTasks();
+    return;
+  }
+  const app = initializeApp(firebaseConfig);
+  await signInAnonymously(getAuth(app));
+  db = getFirestore(app);
+
+  messagingSupported = 'serviceWorker' in navigator && 'Notification' in window && (await isSupported());
+
+  onSnapshot(query(collection(db, 'users'), orderBy('name')), (snap) => {
+    state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderUserSelects();
+    renderTasks();
+    updateNotifStatus();
+    if (rankingVisible()) renderRanking().catch(() => {});
+  });
+
+  onSnapshot(collection(db, 'tasks'), (snap) => {
+    state.tasks = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderTasks();
+  });
 }
 
-refresh().catch((err) => toast(err.message));
-setInterval(() => refresh().catch(() => {}), 30 * 1000);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refresh().catch(() => {});
-});
+start().catch((err) => toast(`Erreur de connexion : ${err.message}`));

@@ -1,51 +1,61 @@
 # M-nage 🧹
 
-Application web (installable sur téléphone) pour organiser le rangement de la maison avec tout le foyer.
+Application pour organiser le rangement de la maison avec tout le foyer. Elle est publiée sur GitHub Pages et s'installe sur l'écran d'accueil du téléphone comme une vraie application.
+
+Adresse une fois publiée : **https://eresys21.github.io/m-nage/**
 
 ## Fonctionnalités
 
 - **Membres du foyer** : ajout / suppression des prénoms (onglet « Foyer »).
 - **Tâches** : ajout / suppression, attribution à une personne ou à tout le monde, nombre de points, date de rappel, répétition (aucune, chaque jour, chaque semaine).
-- **Points** : chaque tâche cochée « ✓ » rapporte ses points à la personne qui l'a faite (celle choisie en haut de l'écran).
-- **Classement hebdomadaire** : du lundi au dimanche, avec navigation vers les semaines précédentes et l'historique des dernières tâches.
-- **Rappels par notification** : à l'heure du rappel, la personne attribuée (ou tout le foyer) reçoit une notification sur son téléphone. Les tâches répétées se reprogramment automatiquement une fois faites.
+- **Points** : chaque tâche cochée « ✓ » rapporte ses points à la personne choisie en haut de l'écran.
+- **Classement hebdomadaire** : du lundi au dimanche, avec les semaines précédentes et l'historique des dernières tâches.
+- **Rappels par notification** : à l'heure du rappel, la personne attribuée (ou tout le foyer) reçoit une notification sur son téléphone.
 
-## Lancer l'application
+## Fonctionnement
 
-Prérequis : Node.js 18 ou plus.
+| Élément | Rôle |
+|---|---|
+| GitHub Pages (`public/`) | L'application elle-même (page web installable) |
+| Firebase Firestore | Les données partagées par tout le foyer |
+| Firebase Cloud Messaging | L'envoi des notifications aux téléphones |
+| GitHub Actions (`reminders.yml`) | Vérifie les rappels toutes les 15 minutes environ |
 
-```bash
-npm install
-npm start
-```
+Tout reste dans les offres gratuites pour un usage familial, aux conditions suivantes :
+- le dépôt GitHub doit être **public** (GitHub Pages et les minutes GitHub Actions illimitées ne sont gratuits que pour les dépôts publics, sauf abonnement GitHub Pro) ;
+- Firebase reste sur l'offre gratuite « Spark ».
 
-L'application est disponible sur `http://localhost:3000`.
+## Mise en place (une seule fois)
 
-Variables d'environnement facultatives :
+### 1. Créer le projet Firebase
 
-| Variable        | Défaut                 | Rôle                                         |
-|-----------------|------------------------|----------------------------------------------|
-| `PORT`          | `3000`                 | Port HTTP                                    |
-| `TZ`            | `Europe/Paris`         | Fuseau horaire (début de semaine le lundi)   |
-| `DATA_DIR`      | `./data`               | Dossier des données (`db.json`, clés VAPID)  |
-| `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact transmis aux services de notification |
+1. Aller sur https://console.firebase.google.com et créer un projet (Google Analytics inutile).
+2. **Authentication** → Commencer → Méthode de connexion → activer **Anonyme**.
+3. **Firestore Database** → Créer une base de données → mode production → choisir une région européenne (ex. `eur3`).
+4. Dans Firestore → onglet **Règles**, coller le contenu du fichier `firestore.rules` puis **Publier**.
+5. ⚙️ **Paramètres du projet** → onglet **Général** → « Vos applications » → icône **Web `</>`** → donner un nom → copier les valeurs de `firebaseConfig` dans `public/firebase-config.js`.
+6. ⚙️ **Paramètres du projet** → onglet **Cloud Messaging** → « Certificats Web Push » → **Générer une paire de clés** → copier la clé dans `vapidKey` de `public/firebase-config.js`.
+7. ⚙️ **Paramètres du projet** → onglet **Comptes de service** → **Générer une nouvelle clé privée** : un fichier JSON est téléchargé. ⚠️ Ce fichier est secret : ne jamais l'ajouter au dépôt.
 
-Les données sont stockées dans `data/db.json` ; les clés de notification sont générées automatiquement au premier lancement dans `data/vapid.json` (à conserver, sinon il faudra réactiver les notifications sur chaque téléphone).
+### 2. Configurer GitHub
 
-## Utilisation sur les téléphones
+1. **Settings → General → Danger Zone → Change visibility** → rendre le dépôt public.
+2. **Settings → Pages** → Source : **GitHub Actions**.
+3. **Settings → Secrets and variables → Actions → New repository secret** :
+   nom `FIREBASE_SERVICE_ACCOUNT`, valeur : tout le contenu du fichier JSON de l'étape 1.7.
+4. Enregistrer (commit) `public/firebase-config.js` rempli : la publication se lance automatiquement (onglet **Actions**).
 
-Les notifications sur téléphone exigent que l'application soit servie en **HTTPS** (sauf `localhost`). Il faut donc l'héberger sur un serveur accessible par tous les téléphones du foyer avec un certificat HTTPS (par exemple un Raspberry Pi derrière un reverse proxy comme Caddy, ou un hébergeur Node.js).
+### 3. Sur chaque téléphone
 
-Ensuite, sur chaque téléphone :
-
-1. Ouvrir l'adresse de l'application.
+1. Ouvrir https://eresys21.github.io/m-nage/
 2. L'ajouter à l'écran d'accueil :
    - **Android (Chrome)** : menu ⋮ → « Installer l'application » / « Ajouter à l'écran d'accueil ».
    - **iPhone (Safari, iOS 16.4 minimum)** : bouton Partager → « Sur l'écran d'accueil ». Sur iPhone, les notifications ne fonctionnent que depuis l'application ouverte depuis l'écran d'accueil.
 3. Choisir son prénom en haut de l'écran.
-4. Onglet « Foyer » → « Activer les notifications sur ce téléphone », puis « Envoyer une notification test » pour vérifier.
+4. Onglet « Foyer » → « Activer les notifications sur ce téléphone ».
 
 ## Limites
 
-- Pas de mot de passe : toute personne ayant l'adresse peut modifier les tâches. À héberger sur une adresse privée ou derrière une protection d'accès.
-- Les rappels sont vérifiés chaque minute par le serveur, qui doit donc rester allumé.
+- Les rappels sont vérifiés toutes les 15 minutes environ ; GitHub peut retarder ces vérifications de quelques minutes en cas de forte charge.
+- GitHub suspend les tâches planifiées d'un dépôt public sans activité depuis 60 jours : il suffit de les réactiver dans l'onglet **Actions**.
+- Pas de mot de passe : toute personne qui connaît l'adresse peut modifier les tâches.

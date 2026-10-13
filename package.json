@@ -2,9 +2,8 @@
   "name": "m-nage",
   "version": "1.0.0",
   "description": "Organisation du rangement de la maison : tâches, rappels, points et classement hebdomadaire",
-  "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "reminders": "node scripts/send-reminders.js"
   },
   "repository": {
     "type": "git",
@@ -15,12 +14,11 @@
     "url": "https://github.com/Eresys21/m-nage/issues"
   },
   "homepage": "https://github.com/Eresys21/m-nage#readme",
-  "dependencies": {
-    "express": "^4.22.3",
-    "web-push": "^3.6.7"
-  },
   "engines": {
     "node": ">=18"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
 }
