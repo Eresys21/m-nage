@@ -1,7 +1,7 @@
 // Configuration de votre projet Firebase (voir README, étape « Firebase »).
 // Ces valeurs ne sont pas secrètes : elles identifient seulement le projet.
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCfXouH6P5PvyjxDZzLPr-usiK5El1u0mI",
   authDomain: "m-nage.firebaseapp.com",
   projectId: "m-nage",
@@ -10,3 +10,6 @@ const firebaseConfig = {
   appId: "1:83241876771:web:2ffd599deade4003dda096",
   measurementId: "G-62VYXB8XW5"
 };
+
+// Paramètres du projet → Cloud Messaging → Certificats Web Push → « Paire de clés ».
+export const vapidKey = 'BNtkP3ZeVjupNtAis1rIFAiySlQqPHZHl0ULL1xgEnDnRLwCd7JnZWilb6iCVoaaXCF_TRd205wMB3V1gEDCzyc';
