@@ -22,6 +22,7 @@ const state = {
   users: [],
   tasks: [],
   suggestions: [],
+  completions: [], // dernières tâches accomplies, visibles par tous
   bonuses: [],
   tiers: DEFAULT_TIERS,
   isAdmin: false,
@@ -356,26 +357,31 @@ async function renderRewards() {
   if (!scores.length) list.append(el('p', { className: 'empty', textContent: 'Ajoutez les membres du foyer.' }));
 }
 
-async function renderHistory() {
-  const history = await getDocs(query(collection(db, 'completions'), orderBy('at', 'desc'), limit(30)));
+// Une validation peut être annulée par la personne qui l'a faite, ou par l'administrateur (bonus compris).
+const canUndo = (c) => state.isAdmin || (Boolean(state.me) && c.userId === state.me && !c.bonus);
+
+function renderHistory() {
   const h = $('#history');
   h.replaceChildren();
-  history.forEach((d) => {
-    const c = d.data();
+  for (const c of state.completions) {
     const when = new Date(c.at).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     h.append(
       el('li', {},
-        el('span', { className: 'task-info', textContent: `${userName(c.userId) || '?'} — ${c.title}` }),
-        el('span', { className: 'task-meta', textContent: when }),
-        el('span', { className: 'points', textContent: `+${c.points}` })
+        el('div', { className: 'task-info' },
+          el('div', { className: 'task-title', textContent: c.title }),
+          el('div', { className: 'task-meta', textContent: `✅ ${userName(c.userId) || '?'} · ${when}` })
+        ),
+        el('span', { className: 'points', textContent: `+${c.points}` }),
+        canUndo(c) ? button('↩️', 'icon', () => undoCompletion(c), 'Annuler (erreur)') : null
       )
     );
-  });
+  }
+  $('#no-history').style.display = state.completions.length ? 'none' : 'block';
 }
 
 async function renderRanking() {
   if (!db) return;
-  await Promise.all([renderWeekRanking(), renderRewards(), renderHistory()]);
+  await Promise.all([renderWeekRanking(), renderRewards()]);
 }
 
 const rankingVisible = () => $('#view-ranking').classList.contains('active');
@@ -396,6 +402,7 @@ function renderAdminState() {
   renderTaskForm();
   renderPending();
   renderTiers();
+  renderHistory();
 }
 
 // ---------- Actions ----------
@@ -419,21 +426,43 @@ async function completeTask(task) {
   const userId = requireCurrentUser();
   if (!userId) return;
   const batch = writeBatch(db);
-  batch.set(doc(collection(db, 'completions')), {
+  const completionRef = doc(collection(db, 'completions'));
+  const completion = {
     taskId: task.id,
     title: task.title,
     userId,
     points: task.points,
     at: new Date().toISOString(),
-  });
+  };
+  // Date de rappel avant validation, pour pouvoir la rétablir en cas d'annulation.
+  if (task.dueAt) completion.prevDueAt = task.dueAt;
+  batch.set(completionRef, completion);
   const ref = doc(db, 'tasks', task.id);
   if (task.recurrence === 'none') {
-    batch.update(ref, { done: true });
+    batch.update(ref, { done: true, lastCompletionId: completionRef.id });
   } else if (task.dueAt) {
     batch.update(ref, { dueAt: nextDue(task.dueAt, task.recurrence), reminded: false });
   }
   await batch.commit();
   toast(`Bravo ${userName(userId)} ! +${task.points} points 🎉`);
+  refreshRanking();
+}
+
+async function undoCompletion(c) {
+  if (!confirm(`Annuler « ${c.title} » (${userName(c.userId) || '?'}, ${c.points} pts) ?`)) return;
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'completions', c.id));
+  const task = c.taskId && state.tasks.find((t) => t.id === c.taskId);
+  if (task) {
+    const ref = doc(db, 'tasks', task.id);
+    if (task.recurrence === 'none') {
+      if (task.done) batch.update(ref, { done: false });
+    } else if (c.prevDueAt) {
+      batch.update(ref, { dueAt: c.prevDueAt, reminded: Date.parse(c.prevDueAt) <= Date.now() });
+    }
+  }
+  await batch.commit();
+  toast('Validation annulée');
   refreshRanking();
 }
 
@@ -774,6 +803,11 @@ function watchData() {
     renderAdminState();
     updateNotifStatus();
     refreshRanking();
+  });
+
+  onSnapshot(query(collection(db, 'completions'), orderBy('at', 'desc'), limit(30)), (snap) => {
+    state.completions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderHistory();
   });
 
   onSnapshot(collection(db, 'tasks'), (snap) => {

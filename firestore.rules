@@ -42,15 +42,19 @@ service cloud.firestore {
     }
 
     // Tâches : seul l'administrateur crée, supprime et fixe les points.
-    // Les membres peuvent seulement marquer comme faite une tâche qui leur est attribuée
-    // (ou attribuée à tout le monde).
+    // Les membres peuvent seulement marquer comme faite (ou non faite) une tâche qui leur est
+    // attribuée (ou attribuée à tout le monde).
     match /tasks/{id} {
       allow read: if signedIn();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
         || (isMember()
             && resource.data.get('assigneeId', null) in [null, myUserId()]
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'dueAt', 'reminded']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'dueAt', 'reminded', 'lastCompletionId'])
+            // remettre une tâche « à faire » exige d'annuler sa validation en même temps
+            && (resource.data.get('done', false) == false
+                || request.resource.data.get('done', false) == true
+                || !existsAfter(/databases/$(database)/documents/completions/$(resource.data.get('lastCompletionId', 'aucune')))));
     }
 
     // Points gagnés : chacun ne valide que ses propres tâches, pour lui-même,
@@ -60,7 +64,7 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if (isAdmin() && request.resource.data.get('bonus', false) == true)
         || (isMember()
-            && request.resource.data.keys().hasOnly(['taskId', 'title', 'userId', 'points', 'at'])
+            && request.resource.data.keys().hasOnly(['taskId', 'title', 'userId', 'points', 'at', 'prevDueAt'])
             && request.resource.data.userId == myUserId()
             && request.resource.data.taskId is string
             && task(request.resource.data.taskId).get('assigneeId', null) in [null, myUserId()]
@@ -68,8 +72,12 @@ service cloud.firestore {
             && task(request.resource.data.taskId).get('done', false) == false
             // une tâche non répétée doit être marquée faite en même temps (pas de double validation)
             && (task(request.resource.data.taskId).get('recurrence', 'none') != 'none'
-                || getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('done', false) == true));
-      allow update, delete: if isAdmin();
+                || (getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('done', false) == true
+                    && getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('lastCompletionId', '') == id)));
+      allow update: if isAdmin();
+      // Annulation (erreur) : par la personne qui a validé, ou par l'administrateur (bonus compris).
+      allow delete: if isAdmin()
+        || (isMember() && resource.data.userId == myUserId() && resource.data.get('bonus', false) == false);
     }
 
     // Propositions de tâches et tâches bonus : tout le monde propose, l'administrateur valide.
