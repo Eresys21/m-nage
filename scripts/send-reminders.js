@@ -3,8 +3,8 @@
 const admin = require('firebase-admin');
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error('FIREBASE_SERVICE_ACCOUNT manquant');
-  process.exit(1);
+  console.log('FIREBASE_SERVICE_ACCOUNT non configuré : aucun rappel envoyé.');
+  process.exit(0);
 }
 
 admin.initializeApp({
