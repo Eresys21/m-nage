@@ -36,6 +36,21 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Demandes d'inscription : chacun crée la sienne (compte e-mail), l'administrateur la valide.
+    match /signups/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 30;
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow update: if false;
+    }
+
     match /users/{id} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();

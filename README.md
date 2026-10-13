@@ -6,7 +6,7 @@ Adresse une fois publiée : **https://eresys21.github.io/m-nage/**
 
 ## Fonctionnalités
 
-- **Membres du foyer** : l'administrateur ajoute les prénoms et définit le mot de passe de chacun (onglet « Foyer »). Chacun se connecte en choisissant son prénom en haut de l'écran.
+- **Comptes** : chacun crée son compte depuis l'application (prénom, e-mail, mot de passe) ; l'administrateur valide l'inscription et la relie à un membre du foyer. Connexion en choisissant son prénom en haut de l'écran ou par e-mail, avec « Mot de passe oublié ».
 - **Tâches** : attribution à une personne ou à tout le monde, nombre de points, date de rappel, répétition (aucune, chaque jour, chaque semaine).
 - **Points** : chacun ne peut cocher « ✓ » que les tâches qui lui sont attribuées (ou attribuées à tout le monde) ; les points vont à la personne connectée.
 - **Classement hebdomadaire** : du lundi au dimanche, avec les semaines précédentes et l'historique des dernières tâches.
@@ -47,8 +47,8 @@ Tout reste dans les offres gratuites pour un usage familial, aux conditions suiv
 3. Copier l'**UID** de l'utilisateur créé (colonne « UID utilisateur »).
 4. **Firestore Database** → **Commencer une collection** : ID de collection `admins` ; ID du document : coller l'UID ; ajouter un champ `role` (chaîne) = `admin` → **Enregistrer**.
 5. Dans l'application : onglet « Foyer » → « Compte » → se connecter avec cet e-mail et ce mot de passe.
-6. Ajouter les prénoms du foyer, puis toucher **🙋** à côté de votre propre prénom pour y relier votre compte.
-7. Pour chaque autre membre, toucher **🔑** et choisir son mot de passe (6 caractères minimum). Le même bouton permet de le changer.
+6. Ajouter votre prénom, puis toucher **🙋** à côté pour y relier votre compte.
+7. Les autres membres créent eux-mêmes leur compte (onglet « Foyer » → « Créer mon compte ») ; leur demande apparaît dans « À valider » : choisir le membre correspondant (ou « Nouveau ») puis ✓.
 
 ### 3. Configurer GitHub
 
@@ -64,8 +64,9 @@ Tout reste dans les offres gratuites pour un usage familial, aux conditions suiv
 2. L'ajouter à l'écran d'accueil :
    - **Android (Chrome)** : menu ⋮ → « Installer l'application » / « Ajouter à l'écran d'accueil ».
    - **iPhone (Safari, iOS 16.4 minimum)** : bouton Partager → « Sur l'écran d'accueil ». Sur iPhone, les notifications ne fonctionnent que depuis l'application ouverte depuis l'écran d'accueil.
-3. Choisir son prénom en haut de l'écran et saisir son mot de passe (une seule fois par téléphone).
-4. Onglet « Foyer » → « Activer les notifications sur ce téléphone ».
+3. La première fois : onglet « Foyer » → « Créer mon compte », puis attendre la validation de l'administrateur.
+4. Ensuite : choisir son prénom en haut de l'écran et saisir son mot de passe (une seule fois par téléphone).
+5. Onglet « Foyer » → « Activer les notifications sur ce téléphone ».
 
 ## Limites
 

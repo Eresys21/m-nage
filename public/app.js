@@ -1,7 +1,8 @@
 // Interface de l'application M-nage (données partagées via Firebase).
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
-  getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
+  getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail,
+  signOut, onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   getFirestore, collection, doc, addDoc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, onSnapshot,
@@ -22,6 +23,8 @@ const state = {
   users: [],
   tasks: [],
   suggestions: [],
+  signups: [], // demandes de création de compte à valider
+  pendingSignup: false, // compte créé sur ce téléphone, en attente de validation
   completions: [], // dernières tâches accomplies, visibles par tous
   bonuses: [],
   tiers: DEFAULT_TIERS,
@@ -118,10 +121,9 @@ function renderUserSelects() {
       el('li', {},
         el('span', { className: 'task-info' },
           u.name,
-          u.email ? null : el('span', { className: 'no-access', textContent: ' · pas encore de mot de passe' })
+          u.email ? null : el('span', { className: 'no-access', textContent: ' · pas encore de compte' })
         ),
         state.isAdmin && !state.me ? button('🙋', 'icon', () => linkMe(u), 'C’est moi') : null,
-        state.isAdmin ? button('🔑', 'icon', () => createAccess(u), 'Définir le mot de passe') : null,
         state.isAdmin ? button('🗑️', 'icon', () => deleteUser(u), 'Supprimer') : null
       )
     );
@@ -222,7 +224,32 @@ function renderPending() {
     );
   }
 
-  $('#no-pending').style.display = state.suggestions.length || state.bonuses.length ? 'none' : 'block';
+  const uList = $('#signup-list');
+  uList.replaceChildren();
+  for (const su of state.signups) {
+    const target = el('select', { className: 'signup-target' },
+      el('option', { value: 'new', textContent: `Nouveau : ${su.name}` }),
+      ...state.users.map((u) => el('option', {
+        value: u.id,
+        textContent: u.name,
+        selected: u.name.toLowerCase() === su.name.toLowerCase(),
+      }))
+    );
+    uList.append(
+      el('li', {},
+        el('div', { className: 'task-info' },
+          el('div', { className: 'task-title', textContent: `✍️ ${su.name}` }),
+          el('div', { className: 'task-meta', textContent: `Nouveau compte · ${su.email}` })
+        ),
+        target,
+        button('✓', 'done', () => approveSignup(su, target.value), 'Valider le compte'),
+        button('✕', 'icon', () => rejectSignup(su), 'Refuser')
+      )
+    );
+  }
+
+  const count = state.suggestions.length + state.bonuses.length + state.signups.length;
+  $('#no-pending').style.display = count ? 'none' : 'block';
 }
 
 // ---------- Rendu : paliers ----------
@@ -390,13 +417,19 @@ const refreshRanking = () => {
 };
 
 function renderAdminState() {
-  const loggedIn = Boolean(state.me) || state.isAdmin;
+  const signedInWithEmail = Boolean(auth.currentUser) && !auth.currentUser.isAnonymous;
+  const loggedIn = Boolean(state.me) || state.isAdmin || signedInWithEmail;
   $('#admin-login').hidden = loggedIn;
+  $('#signup-box').hidden = loggedIn;
   $('#admin-status').hidden = !loggedIn;
   const who = state.me ? `✅ Connecté : ${userName(state.me) || '…'}` : '✅ Connecté';
   $('#admin-status-text').textContent = state.isAdmin
     ? `${who} (administrateur)${state.me ? '' : ' — touchez 🙋 à côté de votre prénom pour relier votre compte.'}`
-    : `${who}.`;
+    : state.pendingSignup
+      ? '⏳ Compte créé : en attente de validation par l’administrateur.'
+      : state.me
+        ? `${who}.`
+        : '⚠️ Ce compte n’est relié à aucun membre (inscription refusée ou supprimée).';
   renderUserSelects();
   renderTasks();
   renderTaskForm();
@@ -491,22 +524,29 @@ async function deleteUser(user) {
   await batch.commit();
 }
 
-// Crée (ou remplace) le compte de connexion d'un membre, sans déconnecter l'administrateur.
-let secondaryAuth;
-async function createAccess(user) {
-  const password = prompt(`Mot de passe pour ${user.name} (6 caractères minimum) :`);
-  if (password === null) return;
-  if (password.length < 6) throw new Error('6 caractères minimum');
-  if (!secondaryAuth) secondaryAuth = getAuth(initializeApp(firebaseConfig, 'comptes'));
-  const email = `membre-${user.id.toLowerCase()}-${Date.now()}@m-nage.app`;
-  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-  await signOut(secondaryAuth);
+// Valide une inscription : la relie à un membre existant, ou crée le membre.
+async function approveSignup(signup, target) {
   const batch = writeBatch(db);
-  if (user.uid) batch.delete(doc(db, 'accounts', user.uid));
-  batch.set(doc(db, 'accounts', cred.user.uid), { userId: user.id });
-  batch.update(doc(db, 'users', user.id), { email, uid: cred.user.uid });
+  let userId = target;
+  if (target === 'new') {
+    const ref = doc(collection(db, 'users'));
+    userId = ref.id;
+    batch.set(ref, { name: signup.name, email: signup.email, uid: signup.id });
+  } else {
+    const user = state.users.find((u) => u.id === target);
+    if (!user) throw new Error('Membre introuvable');
+    if (user.uid && user.uid !== signup.id) batch.delete(doc(db, 'accounts', user.uid));
+    batch.update(doc(db, 'users', user.id), { email: signup.email, uid: signup.id });
+  }
+  batch.set(doc(db, 'accounts', signup.id), { userId });
+  batch.delete(doc(db, 'signups', signup.id));
   await batch.commit();
-  toast(`Mot de passe défini pour ${user.name}`);
+  toast(`Compte de ${signup.name} validé`);
+}
+
+async function rejectSignup(signup) {
+  if (!confirm(`Refuser l’inscription de ${signup.name} (${signup.email}) ?`)) return;
+  await deleteDoc(doc(db, 'signups', signup.id));
 }
 
 // Relie le compte administrateur (e-mail) à son prénom dans le foyer.
@@ -663,6 +703,47 @@ $('#admin-login').addEventListener('submit', async (e) => {
 
 $('#admin-logout').addEventListener('click', () => signOut(auth));
 
+$('#forgot-password').addEventListener('click', async () => {
+  const email = $('#admin-login').elements.email.value.trim();
+  if (!email) return toast('Saisissez d’abord votre e-mail');
+  try {
+    await sendPasswordResetEmail(auth, email);
+    toast('Si ce compte existe, un e-mail de réinitialisation a été envoyé');
+  } catch {
+    toast('Adresse e-mail invalide');
+  }
+});
+
+let signingUp = false;
+
+$('#signup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const { name, email, password } = e.target.elements;
+  const cleanName = name.value.trim();
+  if (!cleanName) return;
+  signingUp = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email.value.trim(), password.value);
+    await setDoc(doc(db, 'signups', cred.user.uid), {
+      name: cleanName,
+      email: cred.user.email,
+      createdAt: new Date().toISOString(),
+    });
+    e.target.reset();
+    await loadIdentity(cred.user);
+    toast('Compte créé : en attente de validation');
+  } catch (err) {
+    const messages = {
+      'auth/email-already-in-use': 'Cette adresse e-mail a déjà un compte : connectez-vous',
+      'auth/invalid-email': 'Adresse e-mail invalide',
+      'auth/weak-password': 'Mot de passe trop court (6 caractères minimum)',
+    };
+    toast(messages[err.code] || err.message);
+  } finally {
+    signingUp = false;
+  }
+});
+
 let loginTarget = null;
 
 $('#current-user').addEventListener('change', (e) => {
@@ -779,8 +860,13 @@ function watchPending() {
   pendingUnsubscribers = [];
   state.suggestions = [];
   state.bonuses = [];
+  state.signups = [];
   if (!state.isAdmin) return;
   pendingUnsubscribers.push(
+    onSnapshot(query(collection(db, 'signups'), orderBy('createdAt')), (snap) => {
+      state.signups = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderPending();
+    }),
     onSnapshot(query(collection(db, 'suggestions'), orderBy('createdAt')), (snap) => {
       state.suggestions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderPending();
@@ -822,12 +908,32 @@ function watchData() {
   });
 }
 
+let identityWatches = [];
+
 async function loadIdentity(user) {
   const read = (path) => getDoc(doc(db, path, user.uid)).catch(() => null);
   const [adminDoc, accountDoc] = user.isAnonymous ? [] : await Promise.all([read('admins'), read('accounts')]);
   state.isAdmin = adminDoc?.exists() === true;
   state.me = accountDoc?.exists() ? accountDoc.data().userId : null;
-  if (!user.isAnonymous && !state.isAdmin && !state.me) toast('Ce compte n’est relié à aucun membre.');
+  state.pendingSignup = false;
+  identityWatches.forEach((unsub) => unsub());
+  identityWatches = [];
+  if (!user.isAnonymous && !state.isAdmin && !state.me) {
+    state.pendingSignup = (await read('signups'))?.exists() === true;
+    if (!state.pendingSignup) toast('Ce compte n’est relié à aucun membre.');
+    // Dès que l'administrateur valide (ou refuse) le compte, le téléphone le prend en compte.
+    identityWatches.push(
+      onSnapshot(doc(db, 'accounts', user.uid), (snap) => {
+        if (snap.exists()) loadIdentity(user);
+      }, () => {}),
+      onSnapshot(doc(db, 'signups', user.uid), (snap) => {
+        if (!snap.exists() && state.pendingSignup) {
+          state.pendingSignup = false;
+          renderAdminState();
+        }
+      }, () => {})
+    );
+  }
   // Les rappels de ce téléphone suivent la personne connectée.
   const token = local('fcmToken');
   if (token && state.me) {
@@ -857,6 +963,7 @@ async function start() {
       await signInAnonymously(auth).catch((err) => toast(`Erreur de connexion : ${err.message}`));
       return;
     }
+    if (signingUp) return; // l'inscription charge elle-même l'identité une fois la demande enregistrée
     await loadIdentity(user);
     watchData();
   });

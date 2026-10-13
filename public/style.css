@@ -217,8 +217,10 @@ nav.tabs button.active { color: var(--accent); }
 .tier-row input { margin: 0; }
 .tier-row span { color: var(--muted); white-space: nowrap; }
 
-#admin-login input { margin-top: 8px; }
-#admin-login button { width: 100%; margin-top: 10px; }
+#admin-login input, #signup-form input { margin-top: 8px; }
+#admin-login button, #signup-form button { width: 100%; margin-top: 10px; }
+#signup-box { margin-top: 14px; }
+.signup-target { width: auto; max-width: 9em; margin: 0; padding: 6px; }
 
 dialog {
   border: 1px solid var(--border);

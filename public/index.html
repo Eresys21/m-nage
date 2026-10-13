@@ -27,6 +27,7 @@
     <section id="view-tasks" class="view active">
       <div id="admin-pending" hidden>
         <h2>À valider</h2>
+        <ul id="signup-list" class="list"></ul>
         <ul id="suggestion-list" class="list"></ul>
         <ul id="bonus-list" class="list"></ul>
         <p id="no-pending" class="empty">Rien à valider.</p>
@@ -130,11 +131,22 @@
       <h2>Compte</h2>
       <div class="card">
         <form id="admin-login">
-          <p class="hint">Connexion de l'administrateur par e-mail (première connexion). Les membres se connectent en choisissant leur prénom en haut de l'écran.</p>
+          <p class="hint">Connexion par e-mail. Vous pouvez aussi choisir votre prénom en haut de l'écran.</p>
           <input name="email" type="email" required placeholder="E-mail" autocomplete="username">
           <input name="password" type="password" required placeholder="Mot de passe" autocomplete="current-password">
           <button type="submit">Se connecter</button>
+          <button type="button" id="forgot-password" class="secondary">Mot de passe oublié</button>
         </form>
+        <details id="signup-box">
+          <summary>✍️ Créer mon compte</summary>
+          <form id="signup-form">
+            <p class="hint">Votre compte sera actif dès que l'administrateur l'aura validé.</p>
+            <input name="name" required maxlength="30" placeholder="Prénom">
+            <input name="email" type="email" required placeholder="E-mail" autocomplete="username">
+            <input name="password" type="password" required minlength="6" placeholder="Mot de passe (6 caractères minimum)" autocomplete="new-password">
+            <button type="submit">Créer mon compte</button>
+          </form>
+        </details>
         <div id="admin-status" hidden>
           <p id="admin-status-text"></p>
           <button id="admin-logout" class="secondary">Se déconnecter</button>
