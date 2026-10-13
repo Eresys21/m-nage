@@ -234,3 +234,8 @@ dialog h2 { margin-top: 0; }
 .dialog-actions { display: flex; gap: 8px; margin-top: 12px; }
 .dialog-actions button { flex: 1; }
 .no-access { color: var(--muted); font-size: 0.82rem; }
+
+#times-field > label { margin-bottom: 0; }
+.time-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.time-row input { margin: 0; }
+#time-add { width: 100%; margin-top: 8px; }

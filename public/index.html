@@ -54,16 +54,22 @@
           <label>Attribuée à
             <select name="assigneeId" id="assignee-select"></select>
           </label>
-          <label>Rappel le
-            <input name="dueAt" type="datetime-local">
-          </label>
           <label>Répétition
-            <select name="recurrence">
+            <select name="recurrence" id="recurrence-select">
               <option value="none">Aucune</option>
               <option value="daily">Chaque jour</option>
+              <option value="multi">Plusieurs fois par jour</option>
               <option value="weekly">Chaque semaine</option>
             </select>
           </label>
+          <label id="due-field">Rappel le
+            <input name="dueAt" type="datetime-local">
+          </label>
+          <div id="times-field" hidden>
+            <label>Heures dans la journée</label>
+            <div id="time-rows"></div>
+            <button type="button" id="time-add" class="secondary">+ Ajouter une heure</button>
+          </div>
           <button type="submit" id="task-form-submit">Proposer</button>
         </form>
       </details>

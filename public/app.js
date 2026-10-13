@@ -139,6 +139,11 @@ function formatDue(iso) {
 
 const RECURRENCE_LABEL = { daily: 'chaque jour', weekly: 'chaque semaine' };
 
+function recurrenceLabel(t) {
+  if (t.recurrence === 'multi' && Array.isArray(t.times)) return `chaque jour à ${t.times.join(', ')}`;
+  return RECURRENCE_LABEL[t.recurrence];
+}
+
 function taskMeta(t) {
   const meta = el('div', { className: 'task-meta' });
   meta.append(`👤 ${userName(t.assigneeId) || 'Tout le monde'}`);
@@ -146,7 +151,7 @@ function taskMeta(t) {
     const late = Date.parse(t.dueAt) < Date.now();
     meta.append(' · ', el('span', { className: late ? 'late' : '', textContent: `⏰ ${formatDue(t.dueAt)}` }));
   }
-  if (RECURRENCE_LABEL[t.recurrence]) meta.append(` · 🔁 ${RECURRENCE_LABEL[t.recurrence]}`);
+  if (recurrenceLabel(t)) meta.append(` · 🔁 ${recurrenceLabel(t)}`);
   return meta;
 }
 
@@ -439,7 +444,26 @@ function renderAdminState() {
 }
 
 // ---------- Actions ----------
-function nextDue(dueAt, recurrence) {
+// Prochain créneau (heures « HH:MM » de la journée) strictement après la date donnée.
+function nextSlot(times, after) {
+  for (let day = 0; day <= 1; day += 1) {
+    for (const time of [...times].sort()) {
+      const [h, m] = time.split(':').map(Number);
+      const d = new Date(after);
+      d.setDate(d.getDate() + day);
+      d.setHours(h, m, 0, 0);
+      if (d > after) return d.toISOString();
+    }
+  }
+  return null;
+}
+
+function nextDue(task) {
+  const { dueAt, recurrence } = task;
+  if (recurrence === 'multi') {
+    // Créneau suivant celui qui vient d'être fait (ou le prochain à venir si la tâche était en retard).
+    return nextSlot(task.times, new Date(Math.max(Date.parse(dueAt), Date.now())));
+  }
   const step = recurrence === 'daily' ? 1 : recurrence === 'weekly' ? 7 : 0;
   const d = new Date(dueAt);
   const now = new Date();
@@ -474,7 +498,7 @@ async function completeTask(task) {
   if (task.recurrence === 'none') {
     batch.update(ref, { done: true, lastCompletionId: completionRef.id });
   } else if (task.dueAt) {
-    batch.update(ref, { dueAt: nextDue(task.dueAt, task.recurrence), reminded: false });
+    batch.update(ref, { dueAt: nextDue(task), reminded: false });
   }
   await batch.commit();
   toast(`Bravo ${userName(userId)} ! +${task.points} points 🎉`);
@@ -568,8 +592,9 @@ async function approveSuggestion(s, pointsValue) {
     title: s.title,
     points,
     assigneeId: s.assigneeId || null,
-    dueAt: s.dueAt || null,
+    dueAt: s.recurrence === 'multi' ? nextSlot(s.times, new Date()) : s.dueAt || null,
     recurrence: s.recurrence || 'none',
+    ...(s.recurrence === 'multi' ? { times: s.times } : {}),
     reminded: false,
     done: false,
   });
@@ -606,6 +631,7 @@ $('#task-form').addEventListener('submit', async (e) => {
   const f = new FormData(e.target);
   const title = String(f.get('title') || '').trim();
   const dueAt = f.get('dueAt');
+  const recurrence = f.get('recurrence');
   try {
     if (!title) throw new Error('Titre requis');
     const data = {
@@ -613,8 +639,14 @@ $('#task-form').addEventListener('submit', async (e) => {
       points: parsePoints(f.get('points')),
       assigneeId: f.get('assigneeId') || null,
       dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-      recurrence: f.get('recurrence'),
+      recurrence,
     };
+    if (recurrence === 'multi') {
+      const times = [...new Set(f.getAll('time').filter(Boolean))].sort();
+      if (times.length < 2) throw new Error('Indiquez au moins deux heures');
+      data.times = times;
+      data.dueAt = nextSlot(times, new Date());
+    }
     if (state.isAdmin) {
       await addDoc(collection(db, 'tasks'), { ...data, reminded: false, done: false });
       toast('Tâche ajoutée');
@@ -625,11 +657,36 @@ $('#task-form').addEventListener('submit', async (e) => {
       toast('Proposition envoyée à l’administrateur');
     }
     e.target.reset();
+    resetTimeRows();
     e.target.closest('details').open = false;
   } catch (err) {
     toast(err.message);
   }
 });
+
+// Heures pour une tâche répétée plusieurs fois par jour.
+function addTimeRow(value = '') {
+  const row = el('div', { className: 'time-row' }, el('input', { type: 'time', name: 'time', value }));
+  row.append(button('🗑️', 'icon', () => row.remove(), 'Retirer'));
+  $('#time-rows').append(row);
+}
+
+function resetTimeRows() {
+  $('#time-rows').replaceChildren();
+  addTimeRow('12:00');
+  addTimeRow('19:00');
+  updateRecurrenceFields();
+}
+
+function updateRecurrenceFields() {
+  const multi = $('#recurrence-select').value === 'multi';
+  $('#times-field').hidden = !multi;
+  $('#due-field').hidden = multi;
+}
+
+$('#recurrence-select').addEventListener('change', updateRecurrenceFields);
+$('#time-add').addEventListener('click', () => addTimeRow());
+resetTimeRows();
 
 $('#bonus-form').addEventListener('submit', async (e) => {
   e.preventDefault();
