@@ -10,6 +10,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { getMessaging, getToken, isSupported } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js';
 import { firebaseConfig, vapidKey } from './firebase-config.js';
+import { LEVELS, levelFor, hueFor, characterSvg } from './character.js';
 
 const DEFAULT_TIERS = [
   { points: 50, euros: 5 },
@@ -180,6 +181,7 @@ function renderTasks() {
         el('div', { className: 'task-info' }, el('div', { className: 'task-title', textContent: t.title }), taskMeta(t)),
         el('span', { className: 'points', textContent: `${t.points} pts` }),
         canComplete(t) ? button('✓', 'done', () => completeTask(t), 'Fait !') : null,
+        canComplete(t) && state.users.length > 1 ? button('🤝', 'icon', () => openShare(t), 'Fait à plusieurs') : null,
         state.isAdmin ? button('✏️', 'icon', () => startEditTask(t), 'Modifier la tâche') : null,
         state.isAdmin ? button('🗑️', 'icon', () => deleteTask(t), 'Supprimer') : null
       )
@@ -401,8 +403,12 @@ async function renderRewards() {
   if (!scores.length) list.append(el('p', { className: 'empty', textContent: 'Ajoutez les membres du foyer.' }));
 }
 
-// Une validation peut être annulée par la personne qui l'a faite, ou par l'administrateur (bonus compris).
-const canUndo = (c) => state.isAdmin || (Boolean(state.me) && c.userId === state.me && !c.bonus);
+// Une validation peut être annulée par la personne concernée, par celle qui l'a enregistrée (tâche
+// partagée) ou par l'administrateur (bonus compris).
+const canUndo = (c) => state.isAdmin || (Boolean(state.me) && !c.bonus && (c.userId === state.me || c.by === state.me));
+
+// Autres participants d'une tâche partagée (même groupe de validation).
+const groupMates = (c) => (c.groupId ? state.completions.filter((x) => x.groupId === c.groupId && x.id !== c.id) : []);
 
 function renderHistory() {
   const h = $('#history');
@@ -413,7 +419,12 @@ function renderHistory() {
       el('li', {},
         el('div', { className: 'task-info' },
           el('div', { className: 'task-title', textContent: c.title }),
-          el('div', { className: 'task-meta', textContent: `✅ ${userName(c.userId) || '?'} · ${when}` })
+          el('div', {
+            className: 'task-meta',
+            textContent: `✅ ${userName(c.userId) || '?'}${
+              groupMates(c).length ? ` 🤝 ${groupMates(c).map((x) => userName(x.userId) || '?').join(', ')}` : ''
+            } · ${when}`,
+          })
         ),
         el('span', { className: 'points', textContent: `+${c.points}` }),
         canUndo(c) ? button('↩️', 'icon', () => undoCompletion(c), 'Annuler (erreur)') : null
@@ -423,9 +434,48 @@ function renderHistory() {
   $('#no-history').style.display = state.completions.length ? 'none' : 'block';
 }
 
+// Personnages : ils évoluent avec les points cumulés depuis le début.
+async function renderCharacters() {
+  const snap = await getDocs(collection(db, 'completions'));
+  const totals = Object.fromEntries(state.users.map((u) => [u.id, 0]));
+  snap.forEach((d) => {
+    const c = d.data();
+    if (c.userId in totals) totals[c.userId] += c.points;
+  });
+  const list = $('#characters');
+  list.replaceChildren();
+  for (const u of [...state.users].sort((a, b) => totals[b.id] - totals[a.id])) {
+    const points = totals[u.id];
+    const level = levelFor(points);
+    const next = LEVELS[level + 1];
+    const avatar = el('div', { className: 'avatar' });
+    avatar.innerHTML = characterSvg(level, hueFor(u.id));
+    const bar = el('div', { className: 'progress' }, el('span'));
+    const from = LEVELS[level].points;
+    bar.firstChild.style.width = next ? `${Math.round(((points - from) / (next.points - from)) * 100)}%` : '100%';
+    list.append(
+      el('li', {},
+        avatar,
+        el('div', { className: 'task-info' },
+          el('div', { className: 'task-title', textContent: u.name }),
+          el('div', { className: 'level-name', textContent: `Niveau ${level + 1} · ${LEVELS[level].name}` }),
+          el('div', {
+            className: 'task-meta',
+            textContent: next
+              ? `${points} pts · encore ${next.points - points} pts pour devenir « ${next.name} »`
+              : `${points} pts · niveau maximum atteint 👑`,
+          }),
+          bar
+        )
+      )
+    );
+  }
+  if (!state.users.length) list.append(el('p', { className: 'empty', textContent: 'Ajoutez les membres du foyer.' }));
+}
+
 async function renderRanking() {
   if (!db) return;
-  await Promise.all([renderWeekRanking(), renderRewards()]);
+  await Promise.all([renderCharacters(), renderWeekRanking(), renderRewards()]);
 }
 
 const rankingVisible = () => $('#view-ranking').classList.contains('active');
@@ -510,21 +560,35 @@ function parsePoints(value) {
   return points;
 }
 
-async function completeTask(task) {
+async function completeTask(task, partners = []) {
   const userId = requireCurrentUser();
   if (!userId) return;
   const batch = writeBatch(db);
   const completionRef = doc(collection(db, 'completions'));
+  const at = new Date().toISOString();
   const completion = {
     taskId: task.id,
     title: task.title,
     userId,
     points: task.points,
-    at: new Date().toISOString(),
+    at,
+    groupId: completionRef.id,
   };
   // Date de rappel avant validation, pour pouvoir la rétablir en cas d'annulation.
   if (task.dueAt) completion.prevDueAt = task.dueAt;
   batch.set(completionRef, completion);
+  // Tâche partagée : chaque participant reçoit tous les points.
+  for (const partnerId of partners) {
+    batch.set(doc(collection(db, 'completions')), {
+      taskId: task.id,
+      title: task.title,
+      userId: partnerId,
+      points: task.points,
+      at,
+      groupId: completionRef.id,
+      by: userId,
+    });
+  }
   const ref = doc(db, 'tasks', task.id);
   if (task.recurrence === 'none') {
     batch.update(ref, { done: true, lastCompletionId: completionRef.id });
@@ -532,21 +596,54 @@ async function completeTask(task) {
     batch.update(ref, { dueAt: nextDue(task), reminded: false });
   }
   await batch.commit();
-  toast(`Bravo ${userName(userId)} ! +${task.points} points 🎉`);
+  const names = [userId, ...partners].map((id) => userName(id)).join(' et ');
+  toast(`Bravo ${names} ! +${task.points} points ${partners.length ? 'chacun ' : ''}🎉`);
   refreshRanking();
 }
 
+let shareTask = null;
+
+function openShare(task) {
+  if (!requireCurrentUser()) return;
+  shareTask = task;
+  $('#share-title').textContent = `${task.title} : avec qui ?`;
+  $('#share-people').replaceChildren(
+    ...state.users
+      .filter((u) => u.id !== state.me)
+      .map((u) => el('label', {}, el('input', { type: 'checkbox', value: u.id }), u.name))
+  );
+  $('#share-dialog').showModal();
+}
+
+$('#share-cancel').addEventListener('click', () => $('#share-dialog').close());
+
+$('#share-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const partners = [...document.querySelectorAll('#share-people input:checked')].map((i) => i.value);
+  if (!partners.length) return toast('Cochez au moins une personne');
+  $('#share-dialog').close();
+  await completeTask(shareTask, partners).catch((err) => toast(err.message));
+});
+
 async function undoCompletion(c) {
-  if (!confirm(`Annuler « ${c.title} » (${userName(c.userId) || '?'}, ${c.points} pts) ?`)) return;
+  // La personne qui a enregistré une tâche partagée (ou l'administrateur) l'annule pour tout le groupe ;
+  // un participant n'annule que sa propre part.
+  const isMain = !c.by;
+  const whole = (isMain && (state.isAdmin || c.userId === state.me)) || c.by === state.me;
+  const entries = whole ? [c, ...groupMates(c)] : [c];
+  const who = entries.map((x) => userName(x.userId) || '?').join(', ');
+  if (!confirm(`Annuler « ${c.title} » (${who}, ${c.points} pts${entries.length > 1 ? ' chacun' : ''}) ?`)) return;
   const batch = writeBatch(db);
-  batch.delete(doc(db, 'completions', c.id));
-  const task = c.taskId && state.tasks.find((t) => t.id === c.taskId);
+  for (const x of entries) batch.delete(doc(db, 'completions', x.id));
+  // La tâche ne revient « à faire » que si la validation principale est annulée.
+  const main = entries.find((x) => !x.by);
+  const task = main && main.taskId && state.tasks.find((t) => t.id === main.taskId);
   if (task) {
     const ref = doc(db, 'tasks', task.id);
     if (task.recurrence === 'none') {
       if (task.done) batch.update(ref, { done: false });
-    } else if (c.prevDueAt) {
-      batch.update(ref, { dueAt: c.prevDueAt, reminded: Date.parse(c.prevDueAt) <= Date.now() });
+    } else if (main.prevDueAt) {
+      batch.update(ref, { dueAt: main.prevDueAt, reminded: Date.parse(main.prevDueAt) <= Date.now() });
     }
   }
   await batch.commit();

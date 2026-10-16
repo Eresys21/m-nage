@@ -72,15 +72,18 @@ service cloud.firestore {
                 || !existsAfter(/databases/$(database)/documents/completions/$(resource.data.get('lastCompletionId', 'aucune')))));
     }
 
-    // Points gagnés : chacun ne valide que ses propres tâches, pour lui-même,
-    // et les points doivent être ceux de la tâche.
+    // Points gagnés : chacun ne valide que ses propres tâches, pour lui-même ou pour les
+    // personnes qui l'ont aidé (tâche partagée, champ « by »), et les points sont ceux de la tâche.
     // Les tâches bonus (sans tâche associée) ne peuvent être créditées que par l'administrateur.
     match /completions/{id} {
       allow read: if signedIn();
       allow create: if (isAdmin() && request.resource.data.get('bonus', false) == true)
         || (isMember()
-            && request.resource.data.keys().hasOnly(['taskId', 'title', 'userId', 'points', 'at', 'prevDueAt'])
-            && request.resource.data.userId == myUserId()
+            && request.resource.data.keys().hasOnly(['taskId', 'title', 'userId', 'points', 'at', 'prevDueAt', 'groupId', 'by'])
+            && ((request.resource.data.userId == myUserId() && !('by' in request.resource.data))
+                || (request.resource.data.get('by', '') == myUserId()
+                    && request.resource.data.userId != myUserId()
+                    && exists(/databases/$(database)/documents/users/$(request.resource.data.userId))))
             && request.resource.data.taskId is string
             && task(request.resource.data.taskId).get('assigneeId', null) in [null, myUserId()]
             && task(request.resource.data.taskId).points == request.resource.data.points
@@ -88,11 +91,13 @@ service cloud.firestore {
             // une tâche non répétée doit être marquée faite en même temps (pas de double validation)
             && (task(request.resource.data.taskId).get('recurrence', 'none') != 'none'
                 || (getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('done', false) == true
-                    && getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('lastCompletionId', '') == id)));
+                    && getAfter(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.get('lastCompletionId', '') == request.resource.data.get('groupId', id))));
       allow update: if isAdmin();
-      // Annulation (erreur) : par la personne qui a validé, ou par l'administrateur (bonus compris).
+      // Annulation (erreur) : par la personne concernée, par celle qui a enregistré la tâche partagée,
+      // ou par l'administrateur (bonus compris).
       allow delete: if isAdmin()
-        || (isMember() && resource.data.userId == myUserId() && resource.data.get('bonus', false) == false);
+        || (isMember() && resource.data.get('bonus', false) == false
+            && (resource.data.userId == myUserId() || resource.data.get('by', '') == myUserId()));
     }
 
     // Propositions de tâches et tâches bonus : tout le monde propose, l'administrateur valide.

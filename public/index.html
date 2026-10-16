@@ -105,6 +105,9 @@
 
     <!-- Classement -->
     <section id="view-ranking" class="view">
+      <h2>Les personnages</h2>
+      <ul id="characters" class="list characters"></ul>
+
       <h2>Classement de la semaine</h2>
       <div class="week-nav">
         <button id="prev-week" aria-label="Semaine précédente">◀</button>
@@ -183,6 +186,18 @@
     <button data-view="view-ranking">🏆<span>Classement</span></button>
     <button data-view="view-family">👪<span>Foyer</span></button>
   </nav>
+
+  <dialog id="share-dialog">
+    <form id="share-form" method="dialog">
+      <h2 id="share-title">Tâche faite à plusieurs</h2>
+      <p class="hint">Chaque participant reçoit tous les points de la tâche.</p>
+      <div id="share-people" class="share-people"></div>
+      <div class="dialog-actions">
+        <button type="button" id="share-cancel" class="secondary">Annuler</button>
+        <button type="submit">Valider</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="login-dialog">
     <form id="login-form" method="dialog">
